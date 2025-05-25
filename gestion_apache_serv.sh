@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # === Configuration ===
-VUSER_DB_TXT="/etc/vsftpd/vsftpd_login.txt"
-VUSER_DB="/etc/vsftpd/vsftpd_login.db"
+VUSER_DB_TXT="/etc/vsftpd/logins.txt"
+VUSER_DB="/etc/vsftpd/logins.db"
 USER_CONF_DIR="/etc/vsftpd/vsftpdUsers"
 FTP_ROOT="/var/www"
 APACHE_CONF_DIR="/etc/apache2/sites-available"
