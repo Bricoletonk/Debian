@@ -1,0 +1,51 @@
+#!/bin/bash
+
+# Vérifie que le script est exécuté en root
+if [[ $EUID -ne 0 ]]; then
+   echo "Ce script doit être exécuté en tant que root." 
+   exit 1
+fi
+
+read -p "Nom de l'utilisateur à créer (ex: monsite): " USERNAME
+read -p "Nom de domaine ou sous-domaine (ex: monsite.local): " DOMAIN
+
+# Crée l'utilisateur sans accès SSH, avec dossier personnel dans /var/www
+useradd -m -d /var/www/$USERNAME -s /usr/sbin/nologin $USERNAME
+
+# Crée le dossier web
+mkdir -p /var/www/$USERNAME/public_html
+
+# Donne la propriété à l'utilisateur
+chown -R $USERNAME:$USERNAME /var/www/$USERNAME
+
+# Crée un fichier index.html par défaut
+echo "<h1>Bienvenue sur $DOMAIN</h1>" > /var/www/$USERNAME/public_html/index.html
+chown $USERNAME:$USERNAME /var/www/$USERNAME/public_html/index.html
+
+# Crée un VirtualHost Apache
+VHOST_CONF="/etc/apache2/sites-available/$USERNAME.conf"
+
+cat <<EOF > $VHOST_CONF
+<VirtualHost *:80>
+    ServerName $DOMAIN
+    DocumentRoot /var/www/$USERNAME/public_html
+    <Directory /var/www/$USERNAME/public_html>
+        AllowOverride All
+        Require all granted
+    </Directory>
+    ErrorLog \${APACHE_LOG_DIR}/$USERNAME-error.log
+    CustomLog \${APACHE_LOG_DIR}/$USERNAME-access.log combined
+</VirtualHost>
+EOF
+
+# Active le site et recharge Apache
+a2ensite $USERNAME.conf
+systemctl reload apache2
+
+# Ajoute un mot de passe pour l'utilisateur (utilisé pour FTP)
+echo "Définissez un mot de passe pour l'utilisateur FTP :"
+passwd $USERNAME
+
+echo "Utilisateur $USERNAME créé avec succès."
+echo "Site disponible sur http://$DOMAIN"
+echo "L'utilisateur peut se connecter en FTP avec le login : $USERNAME"
