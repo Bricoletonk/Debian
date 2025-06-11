@@ -1,88 +1,87 @@
 #!/bin/bash
 
-# Variables
-CARTE_EXT="enp0s3"
-IP_APACHE="10.10.1.4"
+# === Variables ===
+CARTE_EXT="ens18"
+IP_APACHE="10.10.10.10"
 
-# Nettoyage des règles existantes
+# === Nettoyage des anciennes règles ===
 iptables -F
 iptables -t nat -F
-iptables -X
-iptables -t nat -X
 
-# Politiques par défaut
+# === Politiques par défaut : tout bloquer ===
 iptables -P INPUT DROP
 iptables -P OUTPUT DROP
 iptables -P FORWARD DROP
 
-# Autoriser loopback
+# === INPUT --> ===
+# Autoriser SSH personnalisé depuis l'extérieur vers le firewall lui-même
+iptables -A INPUT -i $CARTE_EXT -p tcp --dport 22222 -m state --state NEW,ESTABLISHED -j ACCEPT
+iptables -A OUTPUT -o $CARTE_EXT -p tcp --sport 22222 -m state --state ESTABLISHED -j ACCEPT
+
+# Autoriser loopback local
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A OUTPUT -o lo -j ACCEPT
 
-# Connexions établies/relatives
-iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+# === FORWARD <-> ===
 
-# Sorties autorisées du serveur lui-même
-iptables -A OUTPUT -p tcp --dport 80 -j ACCEPT
-iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT
-iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
-iptables -A OUTPUT -p icmp -j ACCEPT
+# <-> FTP vers le serveur Apache
+iptables -A FORWARD -p tcp --dport 21 -d $IP_APACHE -j ACCEPT
+iptables -A FORWARD -p tcp --sport 21 -s $IP_APACHE -j ACCEPT
+iptables -A FORWARD -p tcp --dport 40000:50000 -d $IP_APACHE -j ACCEPT
+iptables -A FORWARD -p tcp --sport 40000:50000 -s $IP_APACHE -j ACCEPT
 
-# ----------------------------
-# FORWARD vers le serveur Apache
-# ----------------------------
+# <-> Accès public : HTTP, HTTPS, SSH vers serveur Apache
+iptables -A FORWARD -p tcp --dport 80  -d $IP_APACHE -j ACCEPT
+iptables -A FORWARD -p tcp --dport 443 -d $IP_APACHE -j ACCEPT
+iptables -A FORWARD -p tcp --dport 22  -d $IP_APACHE -j ACCEPT
+iptables -A FORWARD -p tcp --dport 2222 -d $IP_APACHE -j ACCEPT
 
-# FTP (actif + passif)
-iptables -A FORWARD -p tcp -d $IP_APACHE --dport 21 -j ACCEPT
-iptables -A FORWARD -p tcp -s $IP_APACHE --sport 21 -j ACCEPT
-iptables -A FORWARD -p tcp -d $IP_APACHE --dport 20 -j ACCEPT
-iptables -A FORWARD -p tcp -s $IP_APACHE --sport 20 -j ACCEPT
-iptables -A FORWARD -p tcp -d $IP_APACHE --dport 40000:50000 -j ACCEPT
-iptables -A FORWARD -p tcp -s $IP_APACHE --sport 40000:50000 -j ACCEPT
-
-# HTTP / HTTPS
-iptables -A FORWARD -p tcp -d $IP_APACHE --dport 80 -j ACCEPT
-iptables -A FORWARD -p tcp -d $IP_APACHE --dport 443 -j ACCEPT
-
-# DNS
+# <-> DNS, ICMP vers Apache
 iptables -A FORWARD -p udp --dport 53 -d $IP_APACHE -j ACCEPT
-
-# ICMP (ping)
 iptables -A FORWARD -p icmp -d $IP_APACHE -j ACCEPT
 
-# SSH (redirigé depuis 2222)
-iptables -A FORWARD -p tcp -d $IP_APACHE --dport 22 -j ACCEPT
+# <-> Réponses aux connexions établies
+iptables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
 
-# ----------------------------
-# NAT : REDIRECTIONS PUBLIQUES
-# ----------------------------
+# === NAT (DNAT pour redirection des ports publics vers le serveur Apache) ===
 
-# FTP
-iptables -t nat -A PREROUTING -i $CARTE_EXT -p tcp --dport 21 -j DNAT --to-destination $IP_APACHE
-iptables -t nat -A PREROUTING -i $CARTE_EXT -p tcp --dport 20 -j DNAT --to-destination $IP_APACHE
-iptables -t nat -A PREROUTING -i $CARTE_EXT -p tcp --dport 40000:50000 -j DNAT --to-destination $IP_APACHE
+# --> FTP (port 21 et passive 40000–50000)
+iptables -t nat -A PREROUTING -i $CARTE_EXT -p tcp --dport 21                -j DNAT --to-destination $IP_APACHE
+iptables -t nat -A PREROUTING -i $CARTE_EXT -p tcp --dport 40000:50000       -j DNAT --to-destination $IP_APACHE
 
-# HTTP / HTTPS
-iptables -t nat -A PREROUTING -i $CARTE_EXT -p tcp --dport 80 -j DNAT --to-destination $IP_APACHE
-iptables -t nat -A PREROUTING -i $CARTE_EXT -p tcp --dport 443 -j DNAT --to-destination $IP_APACHE
+# --> HTTP / HTTPS
+iptables -t nat -A PREROUTING -i $CARTE_EXT -p tcp --dport 80                -j DNAT --to-destination $IP_APACHE
+iptables -t nat -A PREROUTING -i $CARTE_EXT -p tcp --dport 443               -j DNAT --to-destination $IP_APACHE
 
-# SSH privé (port 2222 → port 22 sur Apache)
-iptables -t nat -A PREROUTING -i $CARTE_EXT -p tcp --dport 2222 -j DNAT --to-destination $IP_APACHE:22
+# --> SSH privé vers Apache
+iptables -t nat -A PREROUTING -p tcp --dport 2222                            -j DNAT --to-destination $IP_APACHE:22
 
-# ----------------------------
-# MASQUERADE pour le LAN/DMZ
-# ----------------------------
+# === NAT (MASQUERADE) pour les connexions sortantes ===
 
-iptables -t nat -A POSTROUTING -o $CARTE_EXT -p tcp --dport 80 -j MASQUERADE
-iptables -t nat -A POSTROUTING -o $CARTE_EXT -p tcp --dport 443 -j MASQUERADE
-iptables -t nat -A POSTROUTING -o $CARTE_EXT -p udp --dport 53 -j MASQUERADE
-iptables -t nat -A POSTROUTING -o $CARTE_EXT -p icmp -j MASQUERADE
+# <-- NAT pour Apache vers Internet
+iptables -t nat -A POSTROUTING -p tcp --dport 80  -o $CARTE_EXT -j MASQUERADE
+iptables -t nat -A POSTROUTING -p tcp --dport 443 -o $CARTE_EXT -j MASQUERADE
+iptables -t nat -A POSTROUTING -p udp --dport 53  -o $CARTE_EXT -j MASQUERADE
+iptables -t nat -A POSTROUTING -p icmp           -o $CARTE_EXT -j MASQUERADE
 
-# ----------------------------
-# Affichage des règles
-# ----------------------------
+# <-- NAT pour le réseau LAN vers Internet
+iptables -t nat -A POSTROUTING -s 172.16.2.0/24 -o $CARTE_EXT -j MASQUERADE
 
-iptables -t nat -nvL --line-numbers
-iptables -t filter -nvL --line-numbers
+# === FORWARD réseau LAN (<->) ===
+
+# <-> Le LAN peut accéder à Internet
+iptables -A FORWARD -s 172.16.2.0/24 -p tcp --dport 80  -j ACCEPT
+iptables -A FORWARD -s 172.16.2.0/24 -p tcp --dport 443 -j ACCEPT
+iptables -A FORWARD -s 172.16.2.0/24 -p udp --dport 53  -j ACCEPT
+iptables -A FORWARD -s 172.16.2.0/24 -p icmp            -j ACCEPT
+
+# <-> Le LAN peut accéder au serveur Apache
+iptables -A FORWARD -s 172.16.2.0/24 -d $IP_APACHE -p tcp --dport 80  -j ACCEPT
+iptables -A FORWARD -s 172.16.2.0/24 -d $IP_APACHE -p tcp --dport 443 -j ACCEPT
+iptables -A FORWARD -s 172.16.2.0/24 -d $IP_APACHE -p tcp --dport 21  -j ACCEPT
+iptables -A FORWARD -s 172.16.2.0/24 -d $IP_APACHE -p tcp --dport 22  -j ACCEPT
+iptables -A FORWARD -s 172.16.2.0/24 -d $IP_APACHE -p tcp --dport 40000:50000 -j ACCEPT
+
+# === Affichage final des règles ===
+iptables -t nat -vL
+iptables -t filter -vL
