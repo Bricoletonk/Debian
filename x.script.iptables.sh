@@ -100,14 +100,14 @@ iptables -A FORWARD -s $RESEAU_LAN -d $IP_APACHE -p tcp --dport 40000:50000    -
 # ====================
 
 echo -e "\n\e[1;35m╔════════════════════════════╗"
-echo -e "║        TABLE NAT          ║"
+echo -e "║        TABLE NAT           ║"
 echo -e "╚════════════════════════════╝\e[0m"
 echo -e "\e[0;36m"
 iptables -t nat -vL
 echo -e "\e[0m"
 
 echo -e "\n\e[1;34m╔════════════════════════════╗"
-echo -e "║       TABLE FILTER        ║"
+echo -e "║       TABLE FILTER         ║"
 echo -e "╚════════════════════════════╝\e[0m"
 echo -e "\e[0;37m"
 iptables -t filter -vL
