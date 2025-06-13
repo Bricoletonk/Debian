@@ -16,7 +16,7 @@ iptables -P OUTPUT  DROP
 iptables -P FORWARD DROP
 
 # ====================
-# === Règles de FORWARD ===
+#  <-> Règles de FORWARD 
 # ====================
 
 # <-> FTP vers le serveur Apache
@@ -39,10 +39,10 @@ iptables -A FORWARD -p icmp                       -d $IP_APACHE -j ACCEPT
 iptables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
 
 # ====================
-# === INPUT / OUTPUT sur le firewall ===
+#  >|< INPUT / OUTPUT sur le firewall 
 # ====================
 
-# --> SSH sur port 22222 (sécurisé) vers le firewall
+# ->| SSH sur port 22222 (sécurisé) vers le firewall
 iptables -A INPUT  -i $CARTE_EXT -p tcp --dport 22222 -m state --state NEW,ESTABLISHED -j ACCEPT
 iptables -A OUTPUT -o $CARTE_EXT -p tcp --sport 22222 -m state --state ESTABLISHED     -j ACCEPT
 
@@ -51,7 +51,7 @@ iptables -A INPUT  -i lo -j ACCEPT
 iptables -A OUTPUT -o lo -j ACCEPT
 
 # ====================
-# === NAT : PREROUTING (DNAT) ===
+#  --> NAT : PREROUTING (DNAT) 
 # ====================
 
 # --> FTP vers Apache
@@ -66,7 +66,7 @@ iptables -t nat -A PREROUTING -i $CARTE_EXT -p tcp --dport 443            -j DNA
 iptables -t nat -A PREROUTING -p tcp --dport 2222                         -j DNAT --to-destination $IP_APACHE:22
 
 # ====================
-# === NAT : POSTROUTING (MASQUERADE) ===
+#  <-- NAT : POSTROUTING (MASQUERADE) 
 # ====================
 
 # <-- Apache vers Internet
@@ -79,7 +79,7 @@ iptables -t nat -A POSTROUTING -p icmp             -o $CARTE_EXT -j MASQUERADE
 iptables -t nat -A POSTROUTING -s $RESEAU_LAN -o $CARTE_EXT -j MASQUERADE
 
 # ====================
-# === FORWARD LAN ===
+#  <-> FORWARD LAN 
 # ====================
 
 # <-> Le LAN peut accéder à Internet
@@ -96,7 +96,7 @@ iptables -A FORWARD -s $RESEAU_LAN -d $IP_APACHE -p tcp --dport 22             -
 iptables -A FORWARD -s $RESEAU_LAN -d $IP_APACHE -p tcp --dport 40000:50000    -j ACCEPT
 
 # ====================
-# === Affichage final des règles avec couleurs ===
+#  Affichage des règles
 # ====================
 
 echo -e "\n\e[1;35m╔════════════════════════════╗"
