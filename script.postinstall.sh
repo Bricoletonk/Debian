@@ -34,9 +34,11 @@ declare -A packages=(
     [screenfetch]="Affiche les infos système en ASCII"
     [btop]="Moniteur système moderne (remplaçant de htop)"
     [fun]="Utilitaires fun : cbonsai, cmatrix, tty-clock, sl"
+    [webmin]="Interface web d'administration système (port 10000)"
 )
 
 fun_tools=(cbonsai cmatrix tty-clock sl)
+
 # Retirer les paquets déjà installés des propositions
 for pkg in "${!packages[@]}"; do
     if [[ "$pkg" == "fun" ]]; then
@@ -67,7 +69,7 @@ for pkg in "${!packages[@]}"; do
     if [[ "$answer" =~ ^[oOyY]$ ]]; then
         if [[ "$pkg" == "fun" ]]; then
             selected+=("${fun_tools[@]}")
-        else
+        elif [[ "$pkg" != "webmin" ]]; then
             selected+=("$pkg")
         fi
     fi
@@ -82,18 +84,36 @@ else
     echo -e "\e[1;33mAucun paquet sélectionné pour l'installation.\e[0m"
 fi
 
+# Installation spécifique de Webmin
+if [[ " ${!packages[@]} " =~ " webmin " ]]; then
+    ask "Souhaitez-vous installer Webmin (${packages[webmin]}) ? [o/N]" webmin_ans
+    if [[ "$webmin_ans" =~ ^[oOyY]$ ]]; then
+        echo -e "\e[1;34m→ Installation de Webmin...\e[0m"
+
+        apt install -y wget gnupg2 software-properties-common apt-transport-https ca-certificates
+
+        wget -q https://download.webmin.com/jcameron-key.asc -O- | gpg --dearmor > /etc/apt/trusted.gpg.d/webmin.gpg
+        echo "deb https://download.webmin.com/download/repository sarge contrib" > /etc/apt/sources.list.d/webmin.list
+
+        apt update
+        $INSTALLER install -y webmin
+
+        echo -e "\e[1;32m→ Webmin installé avec succès.\e[0m"
+        echo -e "\e[1;33mAccédez à Webmin : https://$(hostname -I | awk '{print $1}'):10000\e[0m"
+    fi
+fi
+
+# Configuration lm-sensors si installé
 if [[ " ${selected[*]} " =~ " lm-sensors " ]]; then
     echo
     echo -e "\e[1;34m→ Configuration des capteurs matériels via sensors-detect...\e[0m"
     yes | sensors-detect
 fi
 
-echo
-ask "Souhaitez-vous ajouter des alias utiles (exa, bat, btop, ip -c...) ? [o/N]" alias_ans
-if [[ "$alias_ans" =~ ^[oOyY]$ ]]; then
-    echo -e "\e[1;34m→ Ajout des alias dans /root/.bashrc et /etc/skel/.bashrc...\e[0m"
-    for bashrc in "/root/.bashrc" "/etc/skel/.bashrc"; do
-        cat <<'EOF' >> "$bashrc"
+# Ajout automatique des alias
+echo -e "\e[1;34m→ Ajout automatique des alias utiles dans /root/.bashrc et /etc/skel/.bashrc...\e[0m"
+for bashrc in "/root/.bashrc" "/etc/skel/.bashrc"; do
+    cat <<'EOF' >> "$bashrc"
 
 # === Alias personnalisés ===
 alias apt='nala'
@@ -104,17 +124,16 @@ alias top='btop'
 alias ip='ip -c'
 alias man='info'
 EOF
-    done
-else
-    echo -e "\e[1;33m→ Alias non ajoutés.\e[0m"
-fi
+done
 
+# Prompt root
 RED='\[\e[1;31m\]'
 WHITE='\[\e[0;37m\]'
 RESET='\[\e[0m\]'
 ROOT_PROMPT="${WHITE}[ ${RED}\u@\h${WHITE} ] \w #${RESET}"
 echo "export PS1=\"$ROOT_PROMPT\"" >> "/root/.bashrc"
 
+# Prompt utilisateurs
 USER_TEMPLATE="/etc/skel/.bashrc"
 cat <<EOF >> "$USER_TEMPLATE"
 
@@ -125,6 +144,7 @@ RESET='\[\e[0m\]'
 export PS1="\${WHITE}[ \${GREEN}\u@\h\${WHITE} ] \w \$\${RESET}"
 EOF
 
+# Hostname
 echo
 ask "Souhaitez-vous changer le nom de la machine (hostname) ? [o/N]" change_host
 if [[ "$change_host" =~ ^[oOyY]$ ]]; then
@@ -134,6 +154,7 @@ if [[ "$change_host" =~ ^[oOyY]$ ]]; then
     echo -e "\e[1;32m→ Nom de la machine changé en $new_hostname\e[0m"
 fi
 
+# SSH root
 echo
 ask "Souhaitez-vous activer l’accès SSH pour root ? [o/N]" ssh_root_ans
 if [[ "$ssh_root_ans" =~ ^[oOyY]$ ]]; then
@@ -149,6 +170,7 @@ else
     echo -e "\e[1;33m→ Accès SSH root laissé désactivé.\e[0m"
 fi
 
+# Redémarrage final
 echo
 ask "Souhaitez-vous redémarrer la machine maintenant ? [O/n]" reboot_ans
 if [[ "$reboot_ans" =~ ^[nN]$ ]]; then
