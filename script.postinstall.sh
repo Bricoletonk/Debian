@@ -23,19 +23,32 @@ else
     echo -e "\e[1;33m→ Nala non détecté : les paquets seront installés avec apt.\e[0m"
 fi
 
+# Détection de la présence d'une interface graphique
+if pgrep -x "Xorg" >/dev/null || pgrep -x "gnome-session" >/dev/null || pgrep -x "sddm" >/dev/null || pgrep -x "gdm" >/dev/null || pgrep -x "lightdm" >/dev/null; then
+    HAS_GUI=true
+    echo -e "\e[1;32m→ Interface graphique détectée.\e[0m"
+else
+    HAS_GUI=false
+    echo -e "\e[1;33m→ Pas d'interface graphique détectée.\e[0m"
+fi
+
 # Déclaration des paquets et descriptions
 declare -A packages=(
     [nala]="Interface améliorée pour apt"
     [exa]="Remplaçant moderne de 'ls'"
     [bat]="Remplaçant de 'cat' avec coloration syntaxique"
     [info]="Affiche la documentation GNU"
-    [lm-sensors]="Surveille les capteurs matériels"
     [inxi]="Outil complet d’information système"
     [screenfetch]="Affiche les infos système en ASCII"
     [btop]="Moniteur système moderne (remplaçant de htop)"
-    [fun]="Utilitaires fun : cbonsai, cmatrix, tty-clock, sl"
     [webmin]="Interface web d'administration système (port 10000)"
 )
+
+# Ajout conditionnel des paquets graphiques
+if [[ "$HAS_GUI" == true ]]; then
+    packages[fun]="Utilitaires fun : cbonsai, cmatrix, tty-clock, sl"
+    packages[lm-sensors]="Surveille les capteurs matériels"
+fi
 
 fun_tools=(cbonsai cmatrix tty-clock sl)
 
@@ -69,41 +82,50 @@ for pkg in "${!packages[@]}"; do
     if [[ "$answer" =~ ^[oOyY]$ ]]; then
         if [[ "$pkg" == "fun" ]]; then
             selected+=("${fun_tools[@]}")
-        elif [[ "$pkg" != "webmin" ]]; then
+        elif [[ "$pkg" == "webmin" ]]; then
+            selected+=("webmin")
+        else
             selected+=("$pkg")
         fi
     fi
 done
 
+# Prompt pour ajouter des logiciels personnalisés
+echo
+ask "Souhaitez-vous ajouter manuellement des logiciels supplémentaires ? (ex: apache2 vim curl) [o/N]" custom_ans
+if [[ "$custom_ans" =~ ^[oOyY]$ ]]; then
+    ask "Entrez les noms des paquets à ajouter (séparés par des espaces) :" custom_packages
+    if [[ -n "$custom_packages" ]]; then
+        selected+=($custom_packages)
+    fi
+fi
+
 if [ ${#selected[@]} -gt 0 ]; then
     echo
     echo -e "\e[1;34m→ Installation des paquets sélectionnés : ${selected[*]}\e[0m"
+
     apt update
+
+    # Gestion spécifique Webmin
+    if [[ " ${selected[*]} " =~ " webmin " ]]; then
+        echo -e "\e[1;34m→ Ajout du dépôt Webmin...\e[0m"
+        apt install -y wget gnupg2 software-properties-common apt-transport-https ca-certificates
+        wget -q https://download.webmin.com/jcameron-key.asc -O- | gpg --dearmor > /etc/apt/trusted.gpg.d/webmin.gpg
+        echo "deb https://download.webmin.com/download/repository sarge contrib" > /etc/apt/sources.list.d/webmin.list
+        apt update
+    fi
+
     $INSTALLER install -y "${selected[@]}"
+
+    if [[ " ${selected[*]} " =~ " webmin " ]]; then
+        echo -e "\e[1;32m→ Webmin installé avec succès.\e[0m"
+        echo -e "\e[1;33mAccédez à Webmin : https://$(hostname -I | awk '{print $1}'):10000\e[0m"
+    fi
 else
     echo -e "\e[1;33mAucun paquet sélectionné pour l'installation.\e[0m"
 fi
 
-# Installation spécifique de Webmin
-if [[ " ${!packages[@]} " =~ " webmin " ]]; then
-    ask "Souhaitez-vous installer Webmin (${packages[webmin]}) ? [o/N]" webmin_ans
-    if [[ "$webmin_ans" =~ ^[oOyY]$ ]]; then
-        echo -e "\e[1;34m→ Installation de Webmin...\e[0m"
-
-        apt install -y wget gnupg2 software-properties-common apt-transport-https ca-certificates
-
-        wget -q https://download.webmin.com/jcameron-key.asc -O- | gpg --dearmor > /etc/apt/trusted.gpg.d/webmin.gpg
-        echo "deb https://download.webmin.com/download/repository sarge contrib" > /etc/apt/sources.list.d/webmin.list
-
-        apt update
-        $INSTALLER install -y webmin
-
-        echo -e "\e[1;32m→ Webmin installé avec succès.\e[0m"
-        echo -e "\e[1;33mAccédez à Webmin : https://$(hostname -I | awk '{print $1}'):10000\e[0m"
-    fi
-fi
-
-# Configuration lm-sensors si installé
+# Configuration lm-sensors si installé et si interface graphique
 if [[ " ${selected[*]} " =~ " lm-sensors " ]]; then
     echo
     echo -e "\e[1;34m→ Configuration des capteurs matériels via sensors-detect...\e[0m"
