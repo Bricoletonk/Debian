@@ -10,11 +10,20 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-# Fonction pour poser des questions avec couleur
+# Fonction utilitaire pour poser des questions
 ask() {
     local prompt="$1"
     local varname="$2"
     read -e -p "$(echo -e "\e[1;33m$prompt\e[0m")" "$varname"
+}
+
+# Fonction pour vérifier et installer un paquet
+ensure_package() {
+    if ! dpkg -s "$1" &>/dev/null; then
+        echo -e "\e[1;34m→ Installation de $1...\e[0m"
+        apt update
+        apt install -y "$1"
+    fi
 }
 
 # ==========================================================
@@ -27,6 +36,9 @@ install_gemini_cli() {
         echo -e "\e[1;32m→ Gemini CLI est déjà installé.\e[0m"
         return
     fi
+
+    ensure_package curl
+    ensure_package ca-certificates
 
     export NVM_DIR="/root/.nvm"
     if [ -s "$NVM_DIR/nvm.sh" ]; then
@@ -62,10 +74,14 @@ install_shell_gpt() {
         return
     fi
 
-    echo -e "\e[1;34m→ Installation de Python3-pip et Shell-GPT...\e[0m"
-    apt install -y python3 python3-pip
+    ensure_package python3
+    ensure_package python3-pip
+    ensure_package build-essential
 
+    echo -e "\e[1;34m→ Mise à jour de pip...\e[0m"
     pip install --upgrade pip
+
+    echo -e "\e[1;34m→ Installation de Shell-GPT...\e[0m"
     pip install shell-gpt
 
     echo -e "\e[1;32m→ Shell-GPT installé avec succès.\e[0m"
@@ -73,15 +89,25 @@ install_shell_gpt() {
 }
 
 # ==========================================================
-# MENU D'INSTALLATION IA
+# MENU DE SÉLECTION IA
 # ==========================================================
 menu_ia() {
-    ask "Souhaitez-vous installer un assistant IA en ligne de commande ?\n1 = Gemini (Google)\n2 = Shell-GPT (OpenAI)\n3 = Aucun [1/2/3] :" ia_choice
+    ask "Souhaitez-vous installer un assistant IA en ligne de commande ?\n1 = Gemini (Google)\n2 = Shell-GPT (OpenAI)\n3 = Les deux\n4 = Aucun [1/2/3/4] :" ia_choice
 
     case $ia_choice in
-        1) install_gemini_cli ;;
-        2) install_shell_gpt ;;
-        *) echo -e "\e[1;33m→ Aucun assistant IA sélectionné.\e[0m" ;;
+        1)
+            install_gemini_cli
+            ;;
+        2)
+            install_shell_gpt
+            ;;
+        3)
+            install_gemini_cli
+            install_shell_gpt
+            ;;
+        *)
+            echo -e "\e[1;33m→ Aucun assistant IA sélectionné.\e[0m"
+            ;;
     esac
 }
 
@@ -91,7 +117,7 @@ menu_ia() {
 main_menu() {
     while true; do
         echo -e "\n\e[1;35m============== MENU PRINCIPAL ==============\e[0m"
-        echo "1. Installer Gemini ou Shell-GPT"
+        echo "1. Lancer le script de post-installation IA"
         echo "2. Quitter"
         echo -e "\e[1;35m============================================\e[0m"
         ask "Votre choix [1-2] :" choice
@@ -104,5 +130,7 @@ main_menu() {
     done
 }
 
-# Lancement du menu
+# ==========================================================
+# LANCEMENT DU SCRIPT
+# ==========================================================
 main_menu
