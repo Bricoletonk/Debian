@@ -225,12 +225,11 @@ fi
 # === Service IP dans /etc/issue ===
 cat << 'EOF' > /usr/local/bin/update-issue-ip.sh
 #!/bin/bash
-IP_INFO=$(hostname -I | xargs -n1 | sed 's/^/ - /')
+IP_INFO=$(hostname -I | xargs -n1)
 ISSUE_TEXT="Debian GNU/Linux \n \l
 
 Adresses IP :
 ${IP_INFO}
-
 "
 echo -e "$ISSUE_TEXT" > /etc/issue
 EOF
