@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ============================================================
-# SCRIPT DE POST-INSTALLATION DEBIAN + IA + IP SUR ISSUE
+# SCRIPT DE POST-INSTALLATION DEBIAN + ASSISTANTS IA + IP ISSUE
 # ============================================================
 
 # Vérifie que le script est exécuté en tant que root
@@ -223,19 +223,23 @@ else
 fi
 
 # === Service IP dans /etc/issue ===
-cat << 'EOF' > /usr/local/bin/update-issue-ip.sh
+echo
+ask "Souhaitez-vous afficher les adresses IP dans l'écran de login (/etc/issue) ? [o/N]" ip_issue_ans
+if [[ "$ip_issue_ans" =~ ^[oOyY]$ ]]; then
+    cat << 'EOF' > /usr/local/bin/update-issue-ip.sh
 #!/bin/bash
-IP_INFO=$(hostname -I | xargs -n1)
+IP_INFO=$(hostname -I | xargs -n1 | sed 's/^/ - /')
 ISSUE_TEXT="Debian GNU/Linux \n \l
 
 Adresses IP :
 ${IP_INFO}
+
 "
 echo -e "$ISSUE_TEXT" > /etc/issue
 EOF
-chmod +x /usr/local/bin/update-issue-ip.sh
+    chmod +x /usr/local/bin/update-issue-ip.sh
 
-cat << 'EOF' > /etc/systemd/system/update-issue-ip.service
+    cat << 'EOF' > /etc/systemd/system/update-issue-ip.service
 [Unit]
 Description=Affiche les adresses IP dans /etc/issue
 After=network-online.target
@@ -249,9 +253,10 @@ ExecStart=/usr/local/bin/update-issue-ip.sh
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reload
-systemctl enable update-issue-ip.service
-systemctl start update-issue-ip.service
+    systemctl daemon-reload
+    systemctl enable update-issue-ip.service
+    systemctl start update-issue-ip.service
+fi
 
 # Redémarrage final
 echo
