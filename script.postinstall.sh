@@ -1,25 +1,18 @@
 #!/bin/bash
 
-# =======================
-# SCRIPT DE POST-INSTALLATION DEBIAN
-# =======================
-
 # Vérifie que le script est exécuté en tant que root
 if [[ $EUID -ne 0 ]]; then
     echo -e "\e[1;31mCe script doit être exécuté en tant que root.\e[0m"
     exit 1
 fi
 
-# Fonction pour poser des questions avec couleur
 ask() {
     local prompt="$1"
     local varname="$2"
     read -e -p "$(echo -e "\e[1;33m$prompt\e[0m") " "$varname"
 }
 
-# ===========================
-# Détection de Nala
-# ===========================
+# Détection de nala
 if command -v nala >/dev/null 2>&1; then
     INSTALLER="nala"
     alias apt="nala"
@@ -29,9 +22,7 @@ else
     echo -e "\e[1;33m→ Nala non détecté : les paquets seront installés avec apt.\e[0m"
 fi
 
-# ===========================
-# Détection de l'interface graphique
-# ===========================
+# Détection interface graphique
 if pgrep -x "Xorg" >/dev/null || pgrep -x "gnome-session" >/dev/null || \
    pgrep -x "sddm" >/dev/null || pgrep -x "gdm" >/dev/null || pgrep -x "lightdm" >/dev/null; then
     HAS_GUI=true
@@ -41,9 +32,7 @@ else
     echo -e "\e[1;33m→ Pas d'interface graphique détectée.\e[0m"
 fi
 
-# ===========================
-# Détection de eza ou exa
-# ===========================
+# Test exa/eza dispo
 if apt-cache show eza >/dev/null 2>&1; then
     LS_TOOL="eza"
 elif apt-cache show exa >/dev/null 2>&1; then
@@ -52,14 +41,10 @@ else
     LS_TOOL=""
 fi
 
-# ===========================
-# Liste des paquets disponibles
-# ===========================
 declare -A packages=(
     [bat]="Remplaçant de 'cat' avec coloration syntaxique"
     [btop]="Moniteur système moderne (remplaçant de htop)"
     [exa]="Remplaçant moderne de 'ls'"
-    [gemini-cli]="Assistant IA de Google (nécessite Node.js)"
     [info]="Affiche la documentation GNU"
     [inxi]="Outil complet d’information système"
     [nala]="Interface améliorée pour apt"
@@ -71,13 +56,11 @@ declare -A packages=(
 if [[ "$HAS_GUI" == true ]]; then
     packages[fun]="Utilitaires fun : cbonsai, cmatrix, tty-clock, sl"
     packages[lm-sensors]="Surveille les capteurs matériels"
+    packages[gemini-cli]="Assistant IA de Google (nécessite Node.js)"
 fi
 
 fun_tools=(cbonsai cmatrix tty-clock sl)
 
-# ===========================
-# Sélection des paquets
-# ===========================
 selected=()
 
 echo -e "\n\e[1;36m===== INSTALLATION DE LOGICIELS =====\e[0m"
@@ -87,11 +70,6 @@ for pkg in $(printf '%s\n' "${!packages[@]}" | sort); do
         ask "Souhaitez-vous installer ${pkg} (${packages[$pkg]}) ? [o/N]" answer
         if [[ "$answer" =~ ^[oOyY]$ ]]; then
             selected+=("${fun_tools[@]}")
-        fi
-    elif [[ "$pkg" == "gemini-cli" || "$pkg" == "shell-gpt" ]]; then
-        ask "Souhaitez-vous installer ${pkg} (${packages[$pkg]}) ? [o/N]" answer
-        if [[ "$answer" =~ ^[oOyY]$ ]]; then
-            selected+=("$pkg")
         fi
     else
         ask "Souhaitez-vous installer ${pkg} (${packages[$pkg]}) ? [o/N]" answer
@@ -109,9 +87,6 @@ if [[ "$custom_ans" =~ ^[oOyY]$ ]]; then
     fi
 fi
 
-# ===========================
-# Installation des paquets
-# ===========================
 if [ ${#selected[@]} -gt 0 ]; then
     echo -e "\n\e[1;34m→ Installation des paquets sélectionnés : ${selected[*]}\e[0m"
 
@@ -135,9 +110,12 @@ else
     echo -e "\e[1;33mAucun paquet sélectionné pour l'installation.\e[0m"
 fi
 
-# ===========================
-# Installation de Gemini CLI
-# ===========================
+if [[ " ${selected[*]} " =~ " lm-sensors " ]]; then
+    echo -e "\n\e[1;34m→ Configuration des capteurs matériels via sensors-detect...\e[0m"
+    yes | sensors-detect
+fi
+
+# Gemini CLI
 if [[ " ${selected[*]} " =~ " gemini-cli " ]]; then
     echo -e "\n\e[1;36m→ Installation de Gemini CLI\e[0m"
     export NVM_DIR="$HOME/.nvm"
@@ -147,30 +125,18 @@ if [[ " ${selected[*]} " =~ " gemini-cli " ]]; then
     source "$NVM_DIR/nvm.sh"
     nvm install --lts
     npm install -g @google/gemini-cli
-    echo -e "\e[1;32m→ Gemini CLI installé avec succès. Lancez 'gemini auth' pour configurer.\e[0m"
+    echo -e "\e[1;32m→ Gemini CLI installé. Lancez 'gemini auth' pour configurer.\e[0m"
 fi
 
-# ===========================
-# Installation de Shell-GPT
-# ===========================
+# Shell-GPT
 if [[ " ${selected[*]} " =~ " shell-gpt " ]]; then
     echo -e "\n\e[1;36m→ Installation de Shell-GPT\e[0m"
     apt install -y python3 python3-pip
     pip install shell-gpt
-    echo -e "\e[1;32m→ Shell-GPT installé avec succès. Configurez avec 'sgpt --configure'.\e[0m"
+    echo -e "\e[1;32m→ Shell-GPT installé. Configurez avec 'sgpt --configure'.\e[0m"
 fi
 
-# ===========================
-# Configuration lm-sensors
-# ===========================
-if [[ " ${selected[*]} " =~ " lm-sensors " ]]; then
-    echo -e "\n\e[1;34m→ Configuration des capteurs matériels via sensors-detect...\e[0m"
-    yes | sensors-detect
-fi
-
-# ===========================
-# Alias intelligents
-# ===========================
+# Alias
 echo -e "\n\e[1;34m→ Ajout des alias dans /root/.bashrc et /etc/skel/.bashrc...\e[0m"
 for bashrc in "/root/.bashrc" "/etc/skel/.bashrc"; do
     cat <<EOF >> "$bashrc"
@@ -186,12 +152,11 @@ alias man='info'
 EOF
 done
 
-# ===========================
-# Prompt
-# ===========================
+# Prompt root
 ROOT_PROMPT='\\[\\e[1;31m\\][ \\u@\\h \\[\\e[0;37m\\]] \\w #\\[\\e[0m\\]'
 echo "export PS1=\"$ROOT_PROMPT\"" >> "/root/.bashrc"
 
+# Prompt utilisateurs
 USER_TEMPLATE="/etc/skel/.bashrc"
 cat <<'EOF' >> "$USER_TEMPLATE"
 
@@ -202,9 +167,7 @@ RESET='\\[\\e[0m\\]'
 export PS1="${WHITE}[ ${GREEN}\\u@\\h${WHITE} ] \\w \$${RESET}"
 EOF
 
-# ===========================
 # Hostname
-# ===========================
 ask "Souhaitez-vous changer le nom de la machine (hostname) ? [o/N]" change_host
 if [[ "$change_host" =~ ^[oOyY]$ ]]; then
     ask "Entrez le nouveau nom de la machine :" new_hostname
@@ -213,9 +176,7 @@ if [[ "$change_host" =~ ^[oOyY]$ ]]; then
     echo -e "\e[1;32m→ Nom de la machine changé en $new_hostname\e[0m"
 fi
 
-# ===========================
 # SSH root
-# ===========================
 ask "Souhaitez-vous activer l’accès SSH pour root ? [o/N]" ssh_root_ans
 if [[ "$ssh_root_ans" =~ ^[oOyY]$ ]]; then
     SSH_CONF="/etc/ssh/sshd_config"
@@ -230,27 +191,45 @@ else
     echo -e "\e[1;33m→ Accès SSH root laissé désactivé.\e[0m"
 fi
 
-# ===========================
-# Affichage IP et informations dans /etc/issue
-# ===========================
-ask "Souhaitez-vous afficher les informations système (IP, hostname...) avant le login ? [o/N]" issue_ans
+# /etc/issue customization
+ask "Souhaitez-vous afficher des infos système avant le login (dans /etc/issue) ? [o/N]" issue_ans
 if [[ "$issue_ans" =~ ^[oOyY]$ ]]; then
+    echo -e "\n\e[1;36m→ Configuration des infos système à afficher dans /etc/issue\e[0m"
+    declare -A issue_opts=(
+        [ip]="Afficher l'adresse IP"
+        [hostname]="Afficher le nom de la machine (hostname)"
+        [kernel]="Afficher la version du noyau (kernel)"
+        [date]="Afficher la date"
+        [console]="Afficher la console (tty)"
+    )
+    issue_display=""
+
+    for key in ip hostname kernel date console; do
+        ask "Souhaitez-vous ${issue_opts[$key]} ? [o/N]" ans
+        if [[ "$ans" =~ ^[oOyY]$ ]]; then
+            issue_display+="$key "
+        fi
+    done
+
+    # Construction du contenu
     {
-        echo "Debian GNU/Linux \s \r (\m) - Kernel \v"
-        echo "Hostname : \n"
-        echo "Date     : \d"
-        echo "Console  : \l"
+        echo "Debian GNU/Linux \s \r (\m)"
+        [[ $issue_display =~ hostname ]] && echo "Hostname : \\n"
+        [[ $issue_display =~ date ]] && echo "Date     : \\d"
+        [[ $issue_display =~ kernel ]] && echo "Kernel   : \\v"
+        [[ $issue_display =~ console ]] && echo "Console  : \\l"
         echo
-        echo "Adresses IP :"
-        hostname -I | xargs -n1
+        if [[ $issue_display =~ ip ]]; then
+            echo "Adresses IP :"
+            hostname -I | xargs -n1
+        fi
         echo
     } > /etc/issue
-    echo -e "\e[1;32m→ Informations ajoutées dans /etc/issue\e[0m"
+
+    echo -e "\e[1;32m→ /etc/issue mis à jour avec les infos sélectionnées.\e[0m"
 fi
 
-# ===========================
-# Redémarrage
-# ===========================
+# Redémarrage final
 ask "\nLe script est terminé. Souhaitez-vous redémarrer la machine maintenant ? [O/n]" reboot_ans
 if [[ ! "$reboot_ans" =~ ^[nN]$ ]]; then
     echo -e "\e[1;34m→ Redémarrage en cours...\e[0m"
