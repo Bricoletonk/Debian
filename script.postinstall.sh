@@ -15,34 +15,35 @@ ask() {
     read -e -p "$(echo -e "\e[1;33m$prompt\e[0m") " "$varname"
 }
 
-# Détection de nala (initiale)
+# --- INSTALLATION SILENCIEUSE DES DÉPENDANCES DE BASE ---
+echo -e "\n\e[1;36m→ Mise à jour des dépôts et installation des dépendances requises en arrière-plan...\e[0m"
+apt-get update -yq >/dev/null 2>&1
+apt-get install -yq curl wget gnupg2 apt-transport-https ca-certificates software-properties-common dirmngr >/dev/null 2>&1
+echo -e "\e[1;32m→ Dépendances installées avec succès.\e[0m"
+
+# Détection de nala
 if command -v nala >/dev/null 2>&1; then
     INSTALLER="nala"
-    echo -e "\e[1;32m→ Nala déjà installé : les paquets seront installés avec nala.\e[0m"
+    alias apt="nala"
 else
     INSTALLER="apt"
-    echo -e "\e[1;33m→ Nala non détecté : on utilisera apt par défaut (à moins qu'il soit sélectionné plus tard).\e[0m"
 fi
 
 # Détection interface graphique
 if pgrep -x "Xorg" >/dev/null || pgrep -x "gnome-session" >/dev/null || \
    pgrep -x "sddm" >/dev/null || pgrep -x "gdm" >/dev/null || pgrep -x "lightdm" >/dev/null; then
     HAS_GUI=true
-    echo -e "\e[1;32m→ Interface graphique détectée.\e[0m"
 else
     HAS_GUI=false
-    echo -e "\e[1;33m→ Pas d'interface graphique détectée.\e[0m"
 fi
 
-# Test eza/exa dispo dynamiquement pour l'affichage
+# Test exa/eza dispo dynamique
 if apt-cache show eza >/dev/null 2>&1; then
-    LS_PKG="eza"
-    LS_DESC="Remplaçant moderne de 'ls' (eza)"
+    LS_TOOL="eza"
 elif apt-cache show exa >/dev/null 2>&1; then
-    LS_PKG="exa"
-    LS_DESC="Remplaçant moderne de 'ls' (exa)"
+    LS_TOOL="exa"
 else
-    LS_PKG=""
+    LS_TOOL=""
 fi
 
 declare -A packages=(
@@ -56,8 +57,9 @@ declare -A packages=(
     [webmin]="Interface web d'administration système (port 10000)"
 )
 
-if [[ -n "$LS_PKG" ]]; then
-    packages[$LS_PKG]="$LS_DESC"
+# Ajout dynamique de l'outil LS
+if [[ -n "$LS_TOOL" ]]; then
+    packages[$LS_TOOL]="Remplaçant moderne de 'ls'"
 fi
 
 if [[ "$HAS_GUI" == true ]]; then
@@ -82,177 +84,160 @@ for pkg in $(printf '%s\n' "${!packages[@]}" | sort); do
     fi
 done
 
-ask "Souhaitez-vous ajouter manuellement des logiciels supplémentaires ? (ex: apache2 vim curl) [o/N]" custom_ans
+ask "Souhaitez-vous ajouter manuellement des logiciels supplémentaires ? (ex: apache2 vim) [o/N]" custom_ans
 if [[ "$custom_ans" =~ ^[oOyY]$ ]]; then
     ask "Entrez les noms des paquets à ajouter (séparés par des espaces) :" custom_packages
     if [[ -n "$custom_packages" ]]; then
-        selected+=($custom_packages) # Pas de guillemets pour séparer les éléments
+        selected+=($custom_packages)
     fi
 fi
 
-if [ ${#selected[@]} -gt 0 ]; then
-    echo -e "\n\e[1;36m===== INSTALLATION =====\e[0m"
-    
-    # 1. Installation de Nala en priorité absolue si sélectionné
-    if [[ " ${selected[*]} " =~ " nala " ]]; then
-        if ! command -v nala >/dev/null 2>&1; then
-            echo -e "\e[1;34m→ Installation de Nala en priorité...\e[0m"
-            apt update
-            apt install -y nala
-        fi
+# Tri des paquets (APT vs Externes)
+apt_packages=()
+external_packages=()
+
+for pkg in "${selected[@]}"; do
+    if [[ "$pkg" == "tgpt" || "$pkg" == "gemini-cli" ]]; then
+        external_packages+=("$pkg")
+    else
+        apt_packages+=("$pkg")
+    fi
+done
+
+if [ ${#apt_packages[@]} -gt 0 ]; then
+    # Nala prioritaire
+    if [[ " ${apt_packages[*]} " =~ " nala " ]]; then
+        echo -e "\n\e[1;34m→ Installation de Nala en priorité...\e[0m"
+        apt-get install -y nala
         INSTALLER="nala"
-        # On supprime nala du tableau pour ne pas le réinstaller
-        selected=("${selected[@]/nala/}")
     fi
 
-    # 2. Gestion du dépôt Webmin (doit être fait avant de vérifier la présence du paquet)
-    if [[ " ${selected[*]} " =~ " webmin " ]]; then
-        echo -e "\e[1;34m→ Configuration du dépôt Webmin...\e[0m"
-        $INSTALLER update
-        $INSTALLER install -y wget gnupg2 software-properties-common apt-transport-https ca-certificates
-        wget -q https://download.webmin.com/jcameron-key.asc -O- | gpg --dearmor > /etc/apt/trusted.gpg.d/webmin.gpg
-        echo "deb https://download.webmin.com/download/repository sarge contrib" > /etc/apt/sources.list.d/webmin.list
-        $INSTALLER update
-    fi
-
-    # 3. Vérification de l'existence des paquets avant de lancer l'installation groupée
-    valid_packages=()
-    failed_packages=()
-
-    echo -e "\e[1;34m→ Vérification de la disponibilité des paquets...\e[0m"
-    for pkg in "${selected[@]}"; do
-        # On exclut les paquets qui ne s'installent pas via APT
-        if [[ "$pkg" == "tgpt" ]] || [[ "$pkg" == "gemini-cli" ]] || [[ -z "$pkg" ]]; then
-            continue
-        fi
-
-        if apt-cache show "$pkg" >/dev/null 2>&1; then
-            valid_packages+=("$pkg")
+    # Vérification des paquets valides via apt-cache
+    valid_apt=()
+    invalid_apt=()
+    
+    echo -e "\n\e[1;34m→ Vérification de la disponibilité des paquets...\e[0m"
+    for pkg in "${apt_packages[@]}"; do
+        if [[ "$pkg" == "webmin" ]]; then
+            valid_apt+=("$pkg") 
+        elif apt-cache show "$pkg" >/dev/null 2>&1; then
+            valid_apt+=("$pkg")
         else
-            failed_packages+=("$pkg")
+            invalid_apt+=("$pkg")
         fi
     done
 
-    # 4. Installation groupée
-    if [ ${#valid_packages[@]} -gt 0 ]; then
-        echo -e "\e[1;34m→ Installation en bloc avec $INSTALLER de : ${valid_packages[*]}\e[0m"
-        $INSTALLER install -y "${valid_packages[@]}"
+    # Préparation Webmin si sélectionné
+    if [[ " ${valid_apt[*]} " =~ " webmin " ]]; then
+        echo -e "\e[1;34m→ Configuration du dépôt Webmin...\e[0m"
+        wget -q https://download.webmin.com/jcameron-key.asc -O- | gpg --dearmor --yes > /usr/share/keyrings/webmin.gpg
+        echo "deb [signed-by=/usr/share/keyrings/webmin.gpg] https://download.webmin.com/download/repository sarge contrib" > /etc/apt/sources.list.d/webmin.list
+        $INSTALLER update -y
     fi
 
-    if [[ " ${selected[*]} " =~ " webmin " ]]; then
-        echo -e "\e[1;32m→ Webmin installé avec succès.\e[0m"
-        echo -e "\e[1;33mAccédez à Webmin : https://$(hostname -I | awk '{print $1}'):10000\e[0m"
+    # Installation groupée
+    if [ ${#valid_apt[@]} -gt 0 ]; then
+        echo -e "\n\e[1;34m→ Installation groupée des paquets valides avec $INSTALLER : ${valid_apt[*]}\e[0m"
+        set +e # Empêche le script de crash en cas d'erreur de téléchargement ponctuelle
+        $INSTALLER install -y "${valid_apt[@]}"
+        set -e
     fi
-else
-    echo -e "\e[1;33mAucun paquet sélectionné pour l'installation.\e[0m"
+
+    if [ ${#invalid_apt[@]} -gt 0 ]; then
+        echo -e "\e[1;31m→ Attention, les paquets suivants sont introuvables et ont été ignorés : ${invalid_apt[*]}\e[0m"
+    fi
 fi
 
 # TGPT
-if [[ " ${selected[*]} " =~ " tgpt " ]]; then
-    echo -e "\n\e[1;36m→ Installation de TGPT...\e[0m"
+if [[ " ${external_packages[*]} " =~ " tgpt " ]]; then
+    echo -e "\n\e[1;36m→ Installation de tgpt\e[0m"
     curl -sSL https://raw.githubusercontent.com/aandrew-me/tgpt/main/install | bash -s /usr/local/bin
-    echo -e "\e[1;32m→ TGPT installé avec succès.\e[0m"
 fi
 
-# Gemini CLI
-if [[ " ${selected[*]} " =~ " gemini-cli " ]]; then
-    echo -e "\n\e[1;36m→ Installation de Gemini CLI via Node.js...\e[0m"
-    # Installation globale et propre de Node.js via NodeSource
+# Gemini
+if [[ " ${external_packages[*]} " =~ " gemini-cli " ]]; then
+    echo -e "\n\e[1;36m→ Installation de Gemini CLI (Node.js global via NodeSource)\e[0m"
     curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
     $INSTALLER install -y nodejs
     npm install -g @google/gemini-cli
     echo -e "\e[1;32m→ Gemini CLI installé. Lancez 'gemini auth' pour configurer.\e[0m"
 fi
 
-# lm-sensors
-if [[ " ${selected[*]} " =~ " lm-sensors " ]]; then
-    echo -e "\n\e[1;34m→ Configuration des capteurs matériels...\e[0m"
+# Messages post-install
+if [[ " ${valid_apt[*]} " =~ " webmin " ]]; then
+    echo -e "\e[1;32m→ Webmin installé avec succès.\e[0m"
+    echo -e "\e[1;33mAccédez à Webmin : https://$(hostname -I | awk '{print $1}'):10000\e[0m"
+fi
+
+if [[ " ${valid_apt[*]} " =~ " lm-sensors " ]]; then
+    echo -e "\n\e[1;34m→ Configuration des capteurs matériels via sensors-detect...\e[0m"
     yes | sensors-detect
 fi
 
-# === ALIAS INTELLIGENTS ===
-echo -e "\n\e[1;34m→ Configuration des alias intelligents...\e[0m"
+# ALIAS & PROMPTS
+echo -e "\n\e[1;34m→ Configuration des alias et des prompts pour tous les utilisateurs...\e[0m"
 
-# On prépare le bloc d'alias selon ce qui est VRAIMENT installé
-ALIAS_BLOCK="\n# === DEBUT ALIAS PERSONNALISES ==="
-if command -v nala >/dev/null 2>&1; then ALIAS_BLOCK+="\nalias apt='nala'"; fi
-if command -v eza >/dev/null 2>&1; then ALIAS_BLOCK+="\nalias la='eza -laT'\nalias ll='eza -lT'\nalias ls='eza'"
-elif command -v exa >/dev/null 2>&1; then ALIAS_BLOCK+="\nalias la='exa -laT'\nalias ll='exa -lT'\nalias ls='exa'"; fi
-if command -v batcat >/dev/null 2>&1; then ALIAS_BLOCK+="\nalias cat='batcat'"; fi
-if command -v btop >/dev/null 2>&1; then ALIAS_BLOCK+="\nalias top='btop'"; fi
-ALIAS_BLOCK+="\nalias ip='ip -c'\nalias man='info'\n# === FIN ALIAS PERSONNALISES ===\n"
-
-# Application des alias à Root, Skel (futurs utilisateurs) et Utilisateurs existants (/home)
-for bashrc in "/root/.bashrc" "/etc/skel/.bashrc" /home/*/.bashrc; do
-    if [ -f "$bashrc" ]; then
-        # Nettoyage des anciens alias pour éviter les doublons
-        sed -i '/# === DEBUT ALIAS PERSONNALISES ===/,/# === FIN ALIAS PERSONNALISES ===/d' "$bashrc"
-        echo -e "$ALIAS_BLOCK" >> "$bashrc"
+# Collecter les chemins de tous les .bashrc
+BASHRC_FILES=("/root/.bashrc" "/etc/skel/.bashrc")
+for user_dir in /home/*; do
+    if [ -d "$user_dir" ] && [ -f "$user_dir/.bashrc" ]; then
+        BASHRC_FILES+=("$user_dir/.bashrc")
     fi
 done
 
-# === PROMPTS (ROOT & UTILISATEURS) ===
-echo -e "\e[1;34m→ Configuration des prompts (Bash)...\e[0m"
+for bashrc in "${BASHRC_FILES[@]}"; do
+    # Nettoyage des anciennes injections pour éviter les doublons
+    sed -i '/# === Alias personnalisés ===/d' "$bashrc"
+    sed -i '/alias apt=/d' "$bashrc"
+    sed -i '/alias la=/d' "$bashrc"
+    sed -i '/alias ll=/d' "$bashrc"
+    sed -i '/alias cat=/d' "$bashrc"
+    sed -i '/alias top=/d' "$bashrc"
+    sed -i '/alias ip=/d' "$bashrc"
+    sed -i '/alias man=/d' "$bashrc"
+    sed -i '/# Prompt/d' "$bashrc"
+    sed -i '/export PS1=/d' "$bashrc"
+    sed -i '/GREEN=/d' "$bashrc"
+    sed -i '/WHITE=/d' "$bashrc"
+    sed -i '/RESET=/d' "$bashrc"
+    sed -i '/ROOT_PROMPT=/d' "$bashrc"
 
-# Root
-ROOT_BASHRC="/root/.bashrc"
-ROOT_PROMPT='\\[\\e[1;31m\\][ \\u@\\h ]\\[\\e[0;37m\\] \\w #\\[\\e[0m\\]'
-sed -i '/# Prompt root personnalisé/,$d' "$ROOT_BASHRC"
-echo "# Prompt root personnalisé" >> "$ROOT_BASHRC"
-echo "export PS1=\"$ROOT_PROMPT\"" >> "$ROOT_BASHRC"
-
-# Utilisateurs existants et futurs
-USER_PROMPT_BLOCK="
-# === DEBUT PROMPT UTILISATEUR ===
-GREEN='\\[\\e[1;32m\\]'
-WHITE='\\[\\e[0;37m\\]'
-RESET='\\[\\e[0m\\]'
-export PS1=\"\${WHITE}[ \${GREEN}\\u@\\h\${WHITE} ] \\w \\\$\${RESET} \"
-# === FIN PROMPT UTILISATEUR ===
-"
-
-for bashrc in "/etc/skel/.bashrc" /home/*/.bashrc; do
-    if [ -f "$bashrc" ]; then
-        sed -i '/# === DEBUT PROMPT UTILISATEUR ===/,/# === FIN PROMPT UTILISATEUR ===/d' "$bashrc"
-        echo -e "$USER_PROMPT_BLOCK" >> "$bashrc"
+    # Ajout des alias
+    echo -e "\n# === Alias personnalisés ===" >> "$bashrc"
+    [[ " ${apt_packages[*]} " =~ " nala " ]] && echo "alias apt='nala'" >> "$bashrc"
+    if [[ -n "$LS_TOOL" && " ${valid_apt[*]} " =~ " $LS_TOOL " ]]; then
+        echo "alias la='$LS_TOOL -laT'" >> "$bashrc"
+        echo "alias ll='$LS_TOOL -lT'" >> "$bashrc"
     fi
-done
+    [[ " ${valid_apt[*]} " =~ " bat " ]] && echo "alias cat='batcat'" >> "$bashrc"
+    [[ " ${valid_apt[*]} " =~ " btop " ]] && echo "alias top='btop'" >> "$bashrc"
+    echo "alias ip='ip -c'" >> "$bashrc"
+    [[ " ${valid_apt[*]} " =~ " info " ]] && echo "alias man='info'" >> "$bashrc"
 
-# Hostname
-ask "Souhaitez-vous changer le nom de la machine (hostname) ? [o/N]" change_host
-if [[ "$change_host" =~ ^[oOyY]$ ]]; then
-    ask "Entrez le nouveau nom de la machine :" new_hostname
-    echo "$new_hostname" > /etc/hostname
-    hostnamectl set-hostname "$new_hostname"
-    echo -e "\e[1;32m→ Nom de la machine changé en $new_hostname\e[0m"
-fi
-
-# SSH root
-ask "Souhaitez-vous activer l’accès SSH pour root ? [o/N]" ssh_root_ans
-if [[ "$ssh_root_ans" =~ ^[oOyY]$ ]]; then
-    SSH_CONF="/etc/ssh/sshd_config"
-    if grep -q "^#\?PermitRootLogin" "$SSH_CONF"; then
-        sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' "$SSH_CONF"
+    # Ajout des prompts (Couleur adaptée selon l'utilisateur)
+    if [[ "$bashrc" == "/root/.bashrc" ]]; then
+        echo -e "\n# Prompt root" >> "$bashrc"
+        echo 'ROOT_PROMPT='\''\[\e[1;31m\][ \u@\h ]\[\e[0;37m\] \w #\[\e[0m\]'\''' >> "$bashrc"
+        echo 'export PS1="$ROOT_PROMPT"' >> "$bashrc"
     else
-        echo "PermitRootLogin yes" >> "$SSH_CONF"
+        echo -e "\n# Prompt utilisateur" >> "$bashrc"
+        echo 'GREEN='\''\[\e[1;32m\]'\''' >> "$bashrc"
+        echo 'WHITE='\''\[\e[0;37m\]'\''' >> "$bashrc"
+        echo 'RESET='\''\[\e[0m\]'\''' >> "$bashrc"
+        echo 'export PS1="${WHITE}[ ${GREEN}\u@\h${WHITE} ] \w \$${RESET}"' >> "$bashrc"
     fi
-    systemctl restart ssh
-    echo -e "\e[1;32m→ Accès SSH root activé (SSH redémarré).\e[0m"
-fi
+done
 
-# /etc/issue customization et nettoyage MOTD (Garanties de base)
-ask "Souhaitez-vous afficher des infos système avant le login (dans /etc/issue) ? [o/N]" issue_ans
+# ISSUE / MOTD
+ask "Souhaitez-vous afficher des infos système avant le login et supprimer les mentions légales ? [o/N]" issue_ans
 if [[ "$issue_ans" =~ ^[oOyY]$ ]]; then
-    echo -e "\n\e[1;36m→ Configuration de /etc/issue et nettoyage des messages par défaut\e[0m"
+    echo -e "\n\e[1;36m→ Nettoyage du MOTD et configuration de /etc/issue\e[0m"
     
-    # Vide le MOTD classique qui contient les garanties Debian/Ubuntu
-    > /etc/motd
+    # Désactiver les messages dynamiques d'Ubuntu/Debian (MOTD)
+    rm -f /etc/motd
+    [ -d /etc/update-motd.d ] && chmod -x /etc/update-motd.d/* 2>/dev/null || true
+    sed -i 's/^PrintMotd yes/PrintMotd no/' /etc/ssh/sshd_config 2>/dev/null || true
     
-    # Désactive les scripts de MOTD dynamique qui recréent les mentions légales
-    if [ -d /etc/update-motd.d ]; then
-        chmod -x /etc/update-motd.d/* 2>/dev/null || true
-    fi
-
     declare -A issue_opts=(
         [ip]="Afficher l'adresse IP"
         [hostname]="Afficher le nom de la machine (hostname)"
@@ -269,29 +254,45 @@ if [[ "$issue_ans" =~ ^[oOyY]$ ]]; then
         fi
     done
 
-    # Construction du contenu
+    # Construction du fichier issue
     {
-        echo -e "Debian GNU/Linux \s \r (\m)\n"
+        echo "Debian GNU/Linux \s \r (\m)"
         [[ $issue_display =~ hostname ]] && echo "Hostname : \n"
         [[ $issue_display =~ date ]] && echo "Date     : \d"
         [[ $issue_display =~ kernel ]] && echo "Kernel   : \v"
         [[ $issue_display =~ console ]] && echo "Console  : \l"
-        
+        echo
         if [[ $issue_display =~ ip ]]; then
-            echo -e "\nAdresses IP (IPv4 / IPv6) :"
-            echo "  \4"
-            echo "  \6"
+            echo "Adresses IP :"
+            echo "IPv4: \4"
+            echo "IPv6: \6"
         fi
         echo
     } > /etc/issue
 
-    echo -e "\e[1;32m→ Messages de base nettoyés et /etc/issue mis à jour.\e[0m"
+    echo -e "\e[1;32m→ Écran de connexion mis à jour.\e[0m"
 fi
 
-# Rapport de fin
-if [ ${#failed_packages[@]} -gt 0 ]; then
-    echo -e "\n\e[1;31m/!\\ Attention : Les paquets suivants n'ont pas pu être installés (introuvables sur les dépôts) :\e[0m"
-    echo -e "\e[1;33m${failed_packages[*]}\e[0m"
+# Hostname
+ask "Souhaitez-vous changer le nom de la machine (hostname) ? [o/N]" change_host
+if [[ "$change_host" =~ ^[oOyY]$ ]]; then
+    ask "Entrez le nouveau nom de la machine :" new_hostname
+    echo "$new_hostname" > /etc/hostname
+    hostnamectl set-hostname "$new_hostname" 2>/dev/null || true
+    echo -e "\e[1;32m→ Nom de la machine changé en $new_hostname\e[0m"
+fi
+
+# SSH root
+ask "Souhaitez-vous activer l’accès SSH pour root ? [o/N]" ssh_root_ans
+if [[ "$ssh_root_ans" =~ ^[oOyY]$ ]]; then
+    SSH_CONF="/etc/ssh/sshd_config"
+    if grep -q "^#\?PermitRootLogin" "$SSH_CONF"; then
+        sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' "$SSH_CONF"
+    else
+        echo "PermitRootLogin yes" >> "$SSH_CONF"
+    fi
+    systemctl restart ssh 2>/dev/null || true
+    echo -e "\e[1;32m→ Accès SSH root activé.\e[0m"
 fi
 
 ask "\nLe script est terminé. Souhaitez-vous redémarrer la machine maintenant ? [O/n]" reboot_ans
@@ -299,7 +300,4 @@ if [[ ! "$reboot_ans" =~ ^[nN]$ ]]; then
     echo -e "\e[1;34m→ Redémarrage en cours...\e[0m"
     sleep 2
     reboot
-else
-    echo -e "\e[1;33m→ Redémarrage annulé. Pensez à le faire manuellement.\e[0m"
-    echo -e "\e[1;33m→ Remarque : Rechargez votre terminal ou tapez 'source ~/.bashrc' pour voir le nouveau prompt et alias.\e[0m"
 fi
