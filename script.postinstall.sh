@@ -14,17 +14,15 @@ ask() {
 
 echo -e "\e[1;34m→ Préparation du système et installation des dépendances requises...\e[0m"
 
-# Désactivation robuste du CD-ROM (couvre "deb cdrom:" et "deb [trusted=yes] cdrom:")
+# Désactivation robuste du CD-ROM
 sed -i '/cdrom:/s/^/#/g' /etc/apt/sources.list
 
-# On lance la mise à jour SANS masquer les erreurs pour s'assurer que tout fonctionne
 echo -e "\e[1;36m→ Mise à jour des dépôts (apt-get update)...\e[0m"
 apt-get update
 
 echo -e "\e[1;36m→ Installation de Nala, curl et des outils de base...\e[0m"
 apt-get install -y nala curl wget gnupg2 ca-certificates lsb-release
 
-# Vérification du succès de Nala
 if command -v nala >/dev/null 2>&1; then
     INSTALLER="nala"
     echo -e "\e[1;32m→ Nala et les dépendances ont été installés avec succès.\e[0m"
@@ -33,7 +31,7 @@ else
     echo -e "\e[1;33m→ Attention : Nala n'a pas pu s'installer, le script utilisera apt-get en secours.\e[0m"
 fi
 
-# Suppression du Message Of The Day (MOTD) dynamique par défaut
+# Suppression du Message Of The Day (MOTD)
 > /etc/motd
 if [ -d /etc/update-motd.d ]; then
     chmod -x /etc/update-motd.d/*
@@ -61,7 +59,7 @@ selected=()
 
 echo -e "\n\e[1;36m===== INSTALLATION DE LOGICIELS =====\e[0m"
 
-for pkg in $(printf '\%s\n' "${!packages[@]}" | sort); do
+for pkg in $(printf '%s\n' "${!packages[@]}" | sort); do
     if [ -n "$pkg" ]; then
         ask "Souhaitez-vous installer ${pkg} (${packages[$pkg]}) ? [o/N]" answer
         if [[ "$answer" =~ ^[oOyY]$ ]]; then
@@ -81,7 +79,6 @@ if [[ "$custom_ans" =~ ^[oOyY]$ ]]; then
     fi
 fi
 
-# Installation en BLOC des utilitaires
 if [ ${#selected[@]} -gt 0 ]; then
     echo -e "\n\e[1;34m→ Installation groupée des paquets : ${selected[*]}\e[0m"
     valid_packages=()
@@ -102,12 +99,11 @@ if [[ "$webmin_ans" =~ ^[oOyY]$ ]]; then
     echo -e "\n\e[1;34m→ Installation de Webmin...\e[0m"
     if ! command -v wget >/dev/null 2>&1; then apt-get install -y wget; fi
     
-    # Nouvelle méthode de sécurité requise pour Debian 12/13
     wget -qO - https://download.webmin.com/jcameron-key.asc | gpg --yes --dearmor -o /usr/share/keyrings/webmin.gpg
     echo "deb [signed-by=/usr/share/keyrings/webmin.gpg] https://download.webmin.com/download/repository sarge contrib" > /etc/apt/sources.list.d/webmin.list
     
-    # Correction apportée ici (retrait du -y)
-    $INSTALLER update$INSTALLER install -y webmin
+    $INSTALLER update
+    $INSTALLER install -y webmin
     echo -e "\e[1;32m→ Webmin installé. Accès : https://$(hostname -I | awk '{print $1}'):10000\e[0m"
 fi
 
@@ -201,7 +197,6 @@ echo -e "\e[1;32m→ Les profils ont été mis à jour avec succès.\e[0m"
 
 echo -e "\n\e[1;36m===== CONFIGURATION DU SYSTÈME =====\e[0m"
 
-# Hostname
 ask "Souhaitez-vous changer le nom de la machine (hostname) ? [o/N]" change_host
 if [[ "$change_host" =~ ^[oOyY]$ ]]; then
     ask "Entrez le nouveau nom de la machine :" new_hostname
@@ -210,7 +205,6 @@ if [[ "$change_host" =~ ^[oOyY]$ ]]; then
     echo -e "\e[1;32m→ Nom de la machine changé en $new_hostname\e[0m"
 fi
 
-# SSH root
 ask "Souhaitez-vous activer l’accès SSH pour root ? [o/N]" ssh_root_ans
 if [[ "$ssh_root_ans" =~ ^[oOyY]$ ]]; then
     SSH_CONF="/etc/ssh/sshd_config"
@@ -225,7 +219,6 @@ else
     echo -e "\e[1;33m→ Accès SSH root laissé désactivé.\e[0m"
 fi
 
-# /etc/issue (Écran de connexion)
 ask "Souhaitez-vous afficher des infos système avant le login (dans /etc/issue) ? [o/N]" issue_ans
 if [[ "$issue_ans" =~ ^[oOyY]$ ]]; then
     declare -A issue_opts=(
@@ -237,4 +230,37 @@ if [[ "$issue_ans" =~ ^[oOyY]$ ]]; then
     )
     issue_display=""
 
-    for key in ip hostname kernel date console
+    for key in ip hostname kernel date console; do
+        ask "Souhaitez-vous ${issue_opts[$key]} ? [o/N]" ans
+        if [[ "$ans" =~ ^[oOyY]$ ]]; then
+            issue_display+="$key "
+        fi
+    done
+
+    {
+        echo "Debian GNU/Linux \s \r (\m)"
+        [[ $issue_display =~ hostname ]] && echo -e "Hostname : \\n"
+        [[ $issue_display =~ date ]] && echo -e "Date     : \\d"
+        [[ $issue_display =~ kernel ]] && echo -e "Kernel   : \\v"
+        [[ $issue_display =~ console ]] && echo -e "Console  : \\l"
+        echo
+        if [[ $issue_display =~ ip ]]; then
+            echo -e "IPv4     : \\4"
+            echo -e "IPv6     : \\6"
+        fi
+        echo
+    } > /etc/issue
+
+    echo -e "\e[1;32m→ /etc/issue mis à jour avec les infos sélectionnées.\e[0m"
+fi
+
+echo -e "\n\e[1;36m===== INSTALLATION TERMINÉE =====\e[0m"
+
+ask "Le script est terminé. Souhaitez-vous redémarrer la machine maintenant ? [O/n]" reboot_ans
+if [[ ! "$reboot_ans" =~ ^[nN]$ ]]; then
+    echo -e "\e[1;34m→ Redémarrage en cours...\e[0m"
+    sleep 2
+    reboot
+else
+    echo -e "\e[1;33m→ Redémarrage annulé. Pensez à le faire manuellement.\e[0m"
+fi
