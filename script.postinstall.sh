@@ -33,7 +33,7 @@ else
     echo -e "\e[1;33m→ Attention : Nala n'a pas pu s'installer, le script utilisera apt-get en secours.\e[0m"
 fi
 
-# Suppression du Message Of The Day (MOTD)
+# Suppression du Message Of The Day (MOTD) dynamique par défaut
 > /etc/motd
 if [ -d /etc/update-motd.d ]; then
     chmod -x /etc/update-motd.d/*
@@ -116,7 +116,6 @@ if [[ "$gemini_ans" =~ ^[oOyY]$ ]]; then
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
     $INSTALLER install -y nodejs
     
-    # Vérification stricte que Node/NPM a bien réussi
     if command -v npm >/dev/null 2>&1; then
         npm install -g @google/gemini-cli
         echo -e "\e[1;32m→ Gemini CLI a été installé avec succès.\e[0m"
@@ -149,14 +148,12 @@ configure_bashrc() {
     local target_rc="$1"
     local is_root="$2"
 
-    # Nettoyage
     sed -i '/# === Alias personnalisés ===/,$d' "$target_rc"
     sed -i '/# === Prompt/,$d' "$target_rc"
 
     echo "" >> "$target_rc"
     echo "# === Alias personnalisés ===" >> "$target_rc"
     
-    # Nala n'est mis en alias que s'il existe réellement
     if command -v nala >/dev/null 2>&1; then
         echo "alias apt='nala'" >> "$target_rc"
     fi
@@ -176,7 +173,6 @@ configure_bashrc() {
     fi
     echo "alias ip='ip -c'" >> "$target_rc"
 
-    # Injection du Prompt
     if [ "$is_root" = true ]; then
         echo "# === Prompt Root ===" >> "$target_rc"
         echo "export PS1='\[\e[1;31m\][ \u@\h ]\[\e[0;37m\] \w #\[\e[0m\] '" >> "$target_rc"
@@ -198,8 +194,78 @@ for user_home in /home/*; do
         fi
     fi
 done
-
 echo -e "\e[1;32m→ Les profils ont été mis à jour avec succès.\e[0m"
-echo -e "\n\e[1;33m/!\\ Pour appliquer les changements de couleurs et d'alias, déconnectez-vous ou tapez :\e[0m"
-echo -e "source ~/.bashrc"
+
+echo -e "\n\e[1;36m===== CONFIGURATION DU SYSTÈME =====\e[0m"
+
+# Hostname
+ask "Souhaitez-vous changer le nom de la machine (hostname) ? [o/N]" change_host
+if [[ "$change_host" =~ ^[oOyY]$ ]]; then
+    ask "Entrez le nouveau nom de la machine :" new_hostname
+    echo "$new_hostname" > /etc/hostname
+    hostnamectl set-hostname "$new_hostname" 2>/dev/null || true
+    echo -e "\e[1;32m→ Nom de la machine changé en $new_hostname\e[0m"
+fi
+
+# SSH root
+ask "Souhaitez-vous activer l’accès SSH pour root ? [o/N]" ssh_root_ans
+if [[ "$ssh_root_ans" =~ ^[oOyY]$ ]]; then
+    SSH_CONF="/etc/ssh/sshd_config"
+    if grep -q "^#\?PermitRootLogin" "$SSH_CONF"; then
+        sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' "$SSH_CONF"
+    else
+        echo "PermitRootLogin yes" >> "$SSH_CONF"
+    fi
+    systemctl restart ssh 2>/dev/null || true
+    echo -e "\e[1;32m→ Accès SSH root activé.\e[0m"
+else
+    echo -e "\e[1;33m→ Accès SSH root laissé désactivé.\e[0m"
+fi
+
+# /etc/issue (Écran de connexion)
+ask "Souhaitez-vous afficher des infos système avant le login (dans /etc/issue) ? [o/N]" issue_ans
+if [[ "$issue_ans" =~ ^[oOyY]$ ]]; then
+    declare -A issue_opts=(
+        [ip]="Afficher l'adresse IP"
+        [hostname]="Afficher le nom de la machine (hostname)"
+        [kernel]="Afficher la version du noyau (kernel)"
+        [date]="Afficher la date"
+        [console]="Afficher la console (tty)"
+    )
+    issue_display=""
+
+    for key in ip hostname kernel date console; do
+        ask "Souhaitez-vous ${issue_opts[$key]} ? [o/N]" ans
+        if [[ "$ans" =~ ^[oOyY]$ ]]; then
+            issue_display+="$key "
+        fi
+    done
+
+    {
+        echo "Debian GNU/Linux \s \r (\m)"
+        [[ $issue_display =~ hostname ]] && echo -e "Hostname : \\n"
+        [[ $issue_display =~ date ]] && echo -e "Date     : \\d"
+        [[ $issue_display =~ kernel ]] && echo -e "Kernel   : \\v"
+        [[ $issue_display =~ console ]] && echo -e "Console  : \\l"
+        echo
+        if [[ $issue_display =~ ip ]]; then
+            echo -e "IPv4     : \\4"
+            echo -e "IPv6     : \\6"
+        fi
+        echo
+    } > /etc/issue
+
+    echo -e "\e[1;32m→ /etc/issue mis à jour avec les infos sélectionnées.\e[0m"
+fi
+
 echo -e "\n\e[1;36m===== INSTALLATION TERMINÉE =====\e[0m"
+
+# Redémarrage final
+ask "Le script est terminé. Souhaitez-vous redémarrer la machine maintenant ? [O/n]" reboot_ans
+if [[ ! "$reboot_ans" =~ ^[nN]$ ]]; then
+    echo -e "\e[1;34m→ Redémarrage en cours...\e[0m"
+    sleep 2
+    reboot
+else
+    echo -e "\e[1;33m→ Redémarrage annulé. Pensez à le faire manuellement.\e[0m"
+fi
