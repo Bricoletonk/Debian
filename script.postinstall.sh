@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Arrête le script immédiatement si une commande critique échoue
+set -e
+
 # Vérifie que le script est exécuté en tant que root
 if [[ $EUID -ne 0 ]]; then
     echo -e "\e[1;31mCe script doit être exécuté en tant que root.\e[0m"
@@ -44,12 +47,12 @@ fi
 declare -A packages=(
     [bat]="Remplaçant de 'cat' avec coloration syntaxique"
     [btop]="Moniteur système moderne (remplaçant de htop)"
-    [exa]="Remplaçant moderne de 'ls'"
+    [exa]="Remplaçant moderne de 'ls' ($LS_TOOL)"
     [info]="Affiche la documentation GNU"
     [inxi]="Outil complet d’information système"
     [nala]="Interface améliorée pour apt"
     [screenfetch]="Affiche les infos système en ASCII"
-    [shell-gpt]="Assistant IA OpenAI en ligne de commande (nécessite Python)"
+    [tgpt]="Assistant IA autonome en ligne de commande (sans clé API)"
     [webmin]="Interface web d'administration système (port 10000)"
 )
 
@@ -60,20 +63,16 @@ if [[ "$HAS_GUI" == true ]]; then
 fi
 
 fun_tools=(cbonsai cmatrix tty-clock sl)
-
 selected=()
 
 echo -e "\n\e[1;36m===== INSTALLATION DE LOGICIELS =====\e[0m"
 
 for pkg in $(printf '%s\n' "${!packages[@]}" | sort); do
-    if [[ "$pkg" == "fun" ]]; then
-        ask "Souhaitez-vous installer ${pkg} (${packages[$pkg]}) ? [o/N]" answer
-        if [[ "$answer" =~ ^[oOyY]$ ]]; then
+    ask "Souhaitez-vous installer ${pkg} (${packages[$pkg]}) ? [o/N]" answer
+    if [[ "$answer" =~ ^[oOyY]$ ]]; then
+        if [[ "$pkg" == "fun" ]]; then
             selected+=("${fun_tools[@]}")
-        fi
-    else
-        ask "Souhaitez-vous installer ${pkg} (${packages[$pkg]}) ? [o/N]" answer
-        if [[ "$answer" =~ ^[oOyY]$ ]]; then
+        else
             selected+=("$pkg")
         fi
     fi
@@ -90,70 +89,75 @@ fi
 if [ ${#selected[@]} -gt 0 ]; then
     echo -e "\n\e[1;34m→ Installation des paquets sélectionnés : ${selected[*]}\e[0m"
 
-    apt update
+    # Séparation des paquets APT et des installations spécifiques (curl/npm)
+    apt_packages=()
+    for p in "${selected[@]}"; do
+        if [[ "$p" != "tgpt" && "$p" != "gemini-cli" && "$p" != "webmin" ]]; then
+            apt_packages+=("$p")
+        fi
+    done
 
+    # Dépôt Webmin
     if [[ " ${selected[*]} " =~ " webmin " ]]; then
         echo -e "\e[1;34m→ Ajout du dépôt Webmin...\e[0m"
-        apt install -y wget gnupg2 software-properties-common apt-transport-https ca-certificates
+        $INSTALLER update
+        $INSTALLER install -y wget gnupg2 software-properties-common apt-transport-https ca-certificates curl
         wget -q https://download.webmin.com/jcameron-key.asc -O- | gpg --dearmor > /etc/apt/trusted.gpg.d/webmin.gpg
         echo "deb https://download.webmin.com/download/repository sarge contrib" > /etc/apt/sources.list.d/webmin.list
-        apt update
+        apt_packages+=("webmin")
     fi
 
-    $INSTALLER install -y "${selected[@]}"
+    # Installation des paquets APT
+    if [ ${#apt_packages[@]} -gt 0 ]; then
+        $INSTALLER update
+        $INSTALLER install -y "${apt_packages[@]}"
+    fi
 
     if [[ " ${selected[*]} " =~ " webmin " ]]; then
         echo -e "\e[1;32m→ Webmin installé avec succès.\e[0m"
-        echo -e "\e[1;33mAccédez à Webmin : https://$(hostname -I | awk '{print $1}'):10000\e[0m"
+        echo -e "\e[1;33mAccédez à Webmin via : https://$(hostname -I | awk '{print $1}'):10000\e[0m"
     fi
 else
-    echo -e "\e[1;33mAucun paquet sélectionné pour l'installation.\e[0m"
+    echo -e "\e[1;33mAucun paquet sélectionné pour l'installation via APT.\e[0m"
 fi
 
+# lm-sensors
 if [[ " ${selected[*]} " =~ " lm-sensors " ]]; then
     echo -e "\n\e[1;34m→ Configuration des capteurs matériels via sensors-detect...\e[0m"
     yes | sensors-detect
 fi
 
-# Gemini CLI
+# tgpt (remplaçant de shell-gpt)
+if [[ " ${selected[*]} " =~ " tgpt " ]]; then
+    echo -e "\n\e[1;36m→ Installation de tgpt\e[0m"
+    curl -sSL https://raw.githubusercontent.com/aandrew-me/tgpt/main/install | bash -s /usr/local/bin
+    echo -e "\e[1;32m→ tgpt installé. Vous pouvez l'utiliser en tapant 'tgpt <votre question>'.\e[0m"
+fi
+
+# Gemini CLI (Installation globale via NodeSource)
 if [[ " ${selected[*]} " =~ " gemini-cli " ]]; then
-    echo -e "\n\e[1;36m→ Installation de Gemini CLI\e[0m"
-    export NVM_DIR="$HOME/.nvm"
-    if [ ! -s "$NVM_DIR/nvm.sh" ]; then
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-    fi
-    source "$NVM_DIR/nvm.sh"
-    nvm install --lts
+    echo -e "\n\e[1;36m→ Installation de Node.js et Gemini CLI\e[0m"
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    $INSTALLER install -y nodejs
     npm install -g @google/gemini-cli
     echo -e "\e[1;32m→ Gemini CLI installé. Lancez 'gemini auth' pour configurer.\e[0m"
 fi
 
-# Shell-GPT
-if [[ " ${selected[*]} " =~ " shell-gpt " ]]; then
-    echo -e "\n\e[1;36m→ Installation de Shell-GPT\e[0m"
-    apt install -y python3 python3-pip
-    pip install shell-gpt
-    echo -e "\e[1;32m→ Shell-GPT installé. Configurez avec 'sgpt --configure'.\e[0m"
-fi
-
-# Alias
+# Alias (Conditionnels)
 echo -e "\n\e[1;34m→ Ajout des alias dans /root/.bashrc et /etc/skel/.bashrc...\e[0m"
-for bashrc in "/root/.bashrc" "/etc/skel/.bashrc"; do
-    cat <<EOF >> "$bashrc"
 
-# === Alias personnalisés ===
-alias apt='nala'
-alias la='$LS_TOOL -laT'
-alias ll='$LS_TOOL -lT'
-alias cat='batcat'
-alias top='btop'
-alias ip='ip -c'
-alias man='info'
-EOF
+alias_block="\n# === Alias personnalisés ===\nalias apt='nala'\nalias ip='ip -c'\n"
+[[ " ${selected[*]} " =~ " exa " ]] && alias_block+="alias la='$LS_TOOL -laT'\nalias ll='$LS_TOOL -lT'\n"
+[[ " ${selected[*]} " =~ " bat " ]] && alias_block+="alias cat='batcat'\n"
+[[ " ${selected[*]} " =~ " btop " ]] && alias_block+="alias top='btop'\n"
+[[ " ${selected[*]} " =~ " info " ]] && alias_block+="alias man='info'\n"
+
+for bashrc in "/root/.bashrc" "/etc/skel/.bashrc"; do
+    echo -e "$alias_block" >> "$bashrc"
 done
 
 # Prompt root
-ROOT_PROMPT='\\[\\e[1;31m\\][ \\u@\\h \\[\\e[0;37m\\]] \\w #\\[\\e[0m\\]'
+ROOT_PROMPT='\\[\\e[1;31m\\][ \\u@\\h ]\\[\\e[0;37m\\] \\w #\\[\\e[0m\\]'
 echo "export PS1=\"$ROOT_PROMPT\"" >> "/root/.bashrc"
 
 # Prompt utilisateurs
@@ -180,8 +184,8 @@ fi
 ask "Souhaitez-vous activer l’accès SSH pour root ? [o/N]" ssh_root_ans
 if [[ "$ssh_root_ans" =~ ^[oOyY]$ ]]; then
     SSH_CONF="/etc/ssh/sshd_config"
-    if grep -q "^#\\?PermitRootLogin" "$SSH_CONF"; then
-        sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/' "$SSH_CONF"
+    if grep -q "^#\?PermitRootLogin" "$SSH_CONF"; then
+        sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' "$SSH_CONF"
     else
         echo "PermitRootLogin yes" >> "$SSH_CONF"
     fi
@@ -191,21 +195,14 @@ else
     echo -e "\e[1;33m→ Accès SSH root laissé désactivé.\e[0m"
 fi
 
-# /etc/issue customization
+# /etc/issue customization (avec \4 pour l'IP dynamique)
 ask "Souhaitez-vous afficher des infos système avant le login (dans /etc/issue) ? [o/N]" issue_ans
 if [[ "$issue_ans" =~ ^[oOyY]$ ]]; then
     echo -e "\n\e[1;36m→ Configuration des infos système à afficher dans /etc/issue\e[0m"
-    declare -A issue_opts=(
-        [ip]="Afficher l'adresse IP"
-        [hostname]="Afficher le nom de la machine (hostname)"
-        [kernel]="Afficher la version du noyau (kernel)"
-        [date]="Afficher la date"
-        [console]="Afficher la console (tty)"
-    )
+    
     issue_display=""
-
     for key in ip hostname kernel date console; do
-        ask "Souhaitez-vous ${issue_opts[$key]} ? [o/N]" ans
+        ask "Souhaitez-vous afficher ${key} ? [o/N]" ans
         if [[ "$ans" =~ ^[oOyY]$ ]]; then
             issue_display+="$key "
         fi
@@ -214,16 +211,13 @@ if [[ "$issue_ans" =~ ^[oOyY]$ ]]; then
     # Construction du contenu
     {
         echo "Debian GNU/Linux \s \r (\m)"
-        [[ $issue_display =~ hostname ]] && echo "Hostname : \\n"
-        [[ $issue_display =~ date ]] && echo "Date     : \\d"
-        [[ $issue_display =~ kernel ]] && echo "Kernel   : \\v"
-        [[ $issue_display =~ console ]] && echo "Console  : \\l"
-        echo
-        if [[ $issue_display =~ ip ]]; then
-            echo "Adresses IP :"
-            hostname -I | xargs -n1
-        fi
-        echo
+        [[ $issue_display =~ hostname ]] && echo "Hostname : \n"
+        [[ $issue_display =~ date ]] && echo "Date     : \d"
+        [[ $issue_display =~ kernel ]] && echo "Kernel   : \v"
+        [[ $issue_display =~ console ]] && echo "Console  : \l"
+        echo ""
+        [[ $issue_display =~ ip ]] && echo "Adresse IPv4 : \4"
+        echo ""
     } > /etc/issue
 
     echo -e "\e[1;32m→ /etc/issue mis à jour avec les infos sélectionnées.\e[0m"
