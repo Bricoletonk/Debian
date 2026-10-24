@@ -101,8 +101,11 @@ fi
 if [[ "$webmin_ans" =~ ^[oOyY]$ ]]; then
     echo -e "\n\e[1;34m→ Installation de Webmin...\e[0m"
     if ! command -v wget >/dev/null 2>&1; then apt-get install -y wget; fi
-    wget -qO - https://download.webmin.com/jcameron-key.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/webmin.gpg
-    echo "deb https://download.webmin.com/download/repository sarge contrib" > /etc/apt/sources.list.d/webmin.list
+    
+    # Nouvelle méthode de sécurité requise pour Debian 12/13
+    wget -qO - https://download.webmin.com/jcameron-key.asc | gpg --yes --dearmor -o /usr/share/keyrings/webmin.gpg
+    echo "deb [signed-by=/usr/share/keyrings/webmin.gpg] https://download.webmin.com/download/repository sarge contrib" > /etc/apt/sources.list.d/webmin.list
+    
     $INSTALLER update -y
     $INSTALLER install -y webmin
     echo -e "\e[1;32m→ Webmin installé. Accès : https://$(hostname -I | awk '{print $1}'):10000\e[0m"
