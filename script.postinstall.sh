@@ -19,7 +19,7 @@ sed -i '/cdrom:/s/^/#/g' /etc/apt/sources.list
 
 # On lance la mise à jour SANS masquer les erreurs pour s'assurer que tout fonctionne
 echo -e "\e[1;36m→ Mise à jour des dépôts (apt-get update)...\e[0m"
-apt-get update -y
+apt-get update
 
 echo -e "\e[1;36m→ Installation de Nala, curl et des outils de base...\e[0m"
 apt-get install -y nala curl wget gnupg2 ca-certificates lsb-release
@@ -61,7 +61,7 @@ selected=()
 
 echo -e "\n\e[1;36m===== INSTALLATION DE LOGICIELS =====\e[0m"
 
-for pkg in $(printf '%s\n' "${!packages[@]}" | sort); do
+for pkg in $(printf '\%s\n' "${!packages[@]}" | sort); do
     if [ -n "$pkg" ]; then
         ask "Souhaitez-vous installer ${pkg} (${packages[$pkg]}) ? [o/N]" answer
         if [[ "$answer" =~ ^[oOyY]$ ]]; then
@@ -106,8 +106,8 @@ if [[ "$webmin_ans" =~ ^[oOyY]$ ]]; then
     wget -qO - https://download.webmin.com/jcameron-key.asc | gpg --yes --dearmor -o /usr/share/keyrings/webmin.gpg
     echo "deb [signed-by=/usr/share/keyrings/webmin.gpg] https://download.webmin.com/download/repository sarge contrib" > /etc/apt/sources.list.d/webmin.list
     
-    $INSTALLER update -y
-    $INSTALLER install -y webmin
+    # Correction apportée ici (retrait du -y)
+    $INSTALLER update$INSTALLER install -y webmin
     echo -e "\e[1;32m→ Webmin installé. Accès : https://$(hostname -I | awk '{print $1}'):10000\e[0m"
 fi
 
@@ -237,38 +237,4 @@ if [[ "$issue_ans" =~ ^[oOyY]$ ]]; then
     )
     issue_display=""
 
-    for key in ip hostname kernel date console; do
-        ask "Souhaitez-vous ${issue_opts[$key]} ? [o/N]" ans
-        if [[ "$ans" =~ ^[oOyY]$ ]]; then
-            issue_display+="$key "
-        fi
-    done
-
-    {
-        echo "Debian GNU/Linux \s \r (\m)"
-        [[ $issue_display =~ hostname ]] && echo -e "Hostname : \\n"
-        [[ $issue_display =~ date ]] && echo -e "Date     : \\d"
-        [[ $issue_display =~ kernel ]] && echo -e "Kernel   : \\v"
-        [[ $issue_display =~ console ]] && echo -e "Console  : \\l"
-        echo
-        if [[ $issue_display =~ ip ]]; then
-            echo -e "IPv4     : \\4"
-            echo -e "IPv6     : \\6"
-        fi
-        echo
-    } > /etc/issue
-
-    echo -e "\e[1;32m→ /etc/issue mis à jour avec les infos sélectionnées.\e[0m"
-fi
-
-echo -e "\n\e[1;36m===== INSTALLATION TERMINÉE =====\e[0m"
-
-# Redémarrage final
-ask "Le script est terminé. Souhaitez-vous redémarrer la machine maintenant ? [O/n]" reboot_ans
-if [[ ! "$reboot_ans" =~ ^[nN]$ ]]; then
-    echo -e "\e[1;34m→ Redémarrage en cours...\e[0m"
-    sleep 2
-    reboot
-else
-    echo -e "\e[1;33m→ Redémarrage annulé. Pensez à le faire manuellement.\e[0m"
-fi
+    for key in ip hostname kernel date console
