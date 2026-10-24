@@ -97,14 +97,18 @@ fi
 # Installation de Webmin
 if [[ "$webmin_ans" =~ ^[oOyY]$ ]]; then
     echo -e "\n\e[1;34m→ Installation de Webmin...\e[0m"
-    if ! command -v wget >/dev/null 2>&1; then apt-get install -y wget; fi
+    if ! command -v curl >/dev/null 2>&1; then apt-get install -y curl; fi
     
-    wget -qO - https://download.webmin.com/jcameron-key.asc | gpg --yes --dearmor -o /usr/share/keyrings/webmin.gpg
-    echo "deb [signed-by=/usr/share/keyrings/webmin.gpg] https://download.webmin.com/download/repository sarge contrib" > /etc/apt/sources.list.d/webmin.list
+    # Utilisation du script officiel de Webmin qui gère les clés modernes
+    curl -fsSL https://raw.githubusercontent.com/webmin/webmin/master/setup-repos.sh -o setup-repos.sh
+    echo "y" | sh setup-repos.sh
     
-    $INSTALLER update
-    $INSTALLER install -y webmin
-    echo -e "\e[1;32m→ Webmin installé. Accès : https://$(hostname -I | awk '{print $1}'):10000\e[0m"
+    if $INSTALLER install -y webmin; then
+        echo -e "\e[1;32m→ Webmin installé. Accès : https://$(hostname -I | awk '{print $1}'):10000\e[0m"
+    else
+        echo -e "\e[1;31m→ Erreur : l'installation de Webmin a échoué.\e[0m"
+    fi
+    rm -f setup-repos.sh
 fi
 
 # Installation de Gemini CLI
