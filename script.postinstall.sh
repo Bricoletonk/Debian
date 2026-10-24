@@ -6,7 +6,6 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-# Fonction pour poser une question
 ask() {
     local prompt="$1"
     local varname="$2"
@@ -18,14 +17,14 @@ echo -e "\e[1;34m→ Préparation du système et installation des dépendances r
 # Désactivation du CD-ROM dans sources.list pour éviter les erreurs d'apt update
 sed -i 's/^deb cdrom:/# deb cdrom:/g' /etc/apt/sources.list
 
-# Mise à jour silencieuse et installation de Nala et des dépendances de base
+# Mise à jour silencieuse et installation des dépendances de base (incluant Nala)
 apt-get update -yq >/dev/null 2>&1
-apt-get install -yq nala curl wget gnupg2 ca-certificates lsb-release >/dev/null 2>&1
+apt-get install -yq curl wget gnupg2 ca-certificates software-properties-common lsb-release nala >/dev/null 2>&1
 
 INSTALLER="nala"
 echo -e "\e[1;32m→ Nala et les dépendances ont été installés avec succès.\e[0m"
 
-# Suppression du Message Of The Day (MOTD) / Garanties par défaut
+# Suppression du Message Of The Day (MOTD) / Garanties par défaut au login
 > /etc/motd
 if [ -d /etc/update-motd.d ]; then
     chmod -x /etc/update-motd.d/*
@@ -61,7 +60,7 @@ for pkg in $(printf '%s\n' "${!packages[@]}" | sort); do
     fi
 done
 
-ask "Souhaitez-vous installer tgpt (Assistant IA autonome en ligne de commande) ? [o/N]" tgpt_ans
+ask "Souhaitez-vous installer gemini-cli (Assistant IA Google) ? [o/N]" gemini_ans
 ask "Souhaitez-vous installer webmin (Interface web d'administration système) ? [o/N]" webmin_ans
 
 # Ajout d'autres paquets manuels
@@ -102,20 +101,36 @@ if [[ "$webmin_ans" =~ ^[oOyY]$ ]]; then
     echo -e "\e[1;32m→ Webmin installé. Accès : https://$(hostname -I | awk '{print $1}'):10000\e[0m"
 fi
 
-# Installation de TGPT via Binaire pré-compilé
-if [[ "$tgpt_ans" =~ ^[oOyY]$ ]]; then
-    echo -e "\n\e[1;34m→ Installation de TGPT (Binaire natif)...\e[0m"
-    ARCH=$(uname -m)
-    if [ "$ARCH" = "x86_64" ]; then TGPT_ARCH="amd64";
-    elif [ "$ARCH" = "aarch64" ]; then TGPT_ARCH="arm64";
-    else TGPT_ARCH=""; fi
+# Installation de Node.js et Gemini CLI
+if [[ "$gemini_ans" =~ ^[oOyY]$ ]]; then
+    echo -e "\n\e[1;34m→ Installation de Node.js (via NodeSource) et Gemini CLI...\e[0m"
     
-    if [ -n "$TGPT_ARCH" ]; then
-        curl -sSL "https://github.com/aandrew-me/tgpt/releases/latest/download/tgpt-linux-$TGPT_ARCH" -o /usr/local/bin/tgpt
-        chmod +x /usr/local/bin/tgpt
-        echo -e "\e[1;32m→ TGPT installé avec succès.\e[0m"
+    # Installation globale propre de Node.js
+    curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - >/dev/null 2>&1
+    apt-get install -yq nodejs >/dev/null 2>&1
+    
+    # Installation globale de l'outil Gemini
+    npm install -g @google/gemini-cli
+    
+    echo -e "\e[1;32m→ Gemini CLI installé avec succès.\e[0m"
+    echo -e "\n\e[1;33mPour utiliser l'IA, vous avez besoin d'une clé API Google gratuite.\e[0m"
+    echo -e "\e[1;37mComme vous êtes sur un terminal sans interface graphique, copiez ce lien :"
+    echo -e "\e[1;36mhttps://aistudio.google.com/app/apikey\e[0m"
+    echo -e "\e[1;37mEt ouvrez-le dans le navigateur web de votre PC.\e[0m\n"
+    
+    ask "Avez-vous généré votre clé API et l'avez-vous copiée ? [o/N]" key_ans
+    if [[ "$key_ans" =~ ^[oOyY]$ ]]; then
+        ask "Collez votre clé API ici :" GEMINI_KEY
+        if [ -n "$GEMINI_KEY" ]; then
+            # Enregistrement global de la clé pour tous les utilisateurs
+            echo "export GEMINI_API_KEY='$GEMINI_KEY'" > /etc/profile.d/gemini_api.sh
+            chmod +x /etc/profile.d/gemini_api.sh
+            echo -e "\e[1;32m→ Clé API sauvegardée ! Elle sera active à la prochaine connexion pour tous les utilisateurs.\e[0m"
+        else
+            echo -e "\e[1;31m→ Aucune clé saisie. L'étape a été ignorée.\e[0m"
+        fi
     else
-        echo -e "\e[1;31m→ Architecture non supportée pour le téléchargement binaire direct de TGPT.\e[0m"
+        echo -e "\e[1;33m→ Pas de problème. Une fois obtenue, vous pourrez utiliser la commande 'gemini auth'.\e[0m"
     fi
 fi
 
@@ -149,7 +164,7 @@ configure_bashrc() {
     fi
     echo "alias ip='ip -c'" >> "$target_rc"
 
-    # Injection du Prompt (Simple Quotes pour éviter l'évaluation immédiate des antislashs)
+    # Injection du Prompt (Simple Quotes)
     if [ "$is_root" = true ]; then
         echo "# === Prompt Root ===" >> "$target_rc"
         echo "export PS1='\[\e[1;31m\][ \u@\h ]\[\e[0;37m\] \w #\[\e[0m\] '" >> "$target_rc"
@@ -174,6 +189,6 @@ for user_home in /home/*; do
 done
 
 echo -e "\e[1;32m→ Les profils ont été mis à jour avec succès.\e[0m"
-echo -e "\n\e[1;33m/!\\ Pour appliquer les changements de couleurs et d'alias immédiatement, tapez :\e[0m"
+echo -e "\n\e[1;33m/!\\ Pour appliquer les changements de couleurs et d'alias, déconnectez-vous ou tapez :\e[0m"
 echo -e "source ~/.bashrc"
 echo -e "\n\e[1;36m===== INSTALLATION TERMINÉE =====\e[0m"
