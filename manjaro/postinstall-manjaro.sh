@@ -60,6 +60,24 @@ MAIN_HOME="$( [ -n "$MAIN_USER" ] && getent passwd "$MAIN_USER" | cut -d: -f6 )"
 MAIN_GROUP="$( [ -n "$MAIN_USER" ] && id -gn "$MAIN_USER" )"
 
 ARCH="$(uname -m)"
+
+# Interface graphique présente ?
+has_gui() {
+    compgen -G "/usr/share/xsessions/*.desktop" >/dev/null && return 0
+    compgen -G "/usr/share/wayland-sessions/*.desktop" >/dev/null && return 0
+    [ -e /etc/systemd/system/display-manager.service ] && return 0
+    return 1
+}
+if has_gui; then GUI=true; else GUI=false; fi
+
+# Modèle de la machine et config Conky correspondante (dépôt Bricoletonk/Conkyrc)
+MODEL="$(cat /sys/class/dmi/id/product_version /sys/class/dmi/id/product_name 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
+case "$MODEL" in
+    *"ThinkPad T14"*)  CONKY_CONFIG="conkyrc-t14" ;;
+    *"ThinkPad X250"*) CONKY_CONFIG="conkyrc-x250" ;;
+    *)                 CONKY_CONFIG="conkyrc-thinkcentre" ;;   # version générique : sans batterie, interface détectée
+esac
+echo -e "\e[1;34m→ Modèle : ${MODEL:-inconnu} | Interface graphique : $($GUI && echo oui || echo non)\e[0m"
 echo -e "\e[1;34m→ Architecture : $ARCH | Utilisateur principal : ${MAIN_USER:-aucun}\e[0m"
 
 # ----------------------------------------------------------
@@ -90,7 +108,6 @@ declare -A packages=(
     [eza]="Remplaçant moderne de 'ls'"
     [fastfetch]="Affiche les infos système en ASCII (successeur de screenfetch)"
     [inxi]="Outil complet d’information système"
-    [conky]="Moniteur système sur le bureau (voir dépôt Conkyrc)"
 )
 
 selected=()
@@ -104,6 +121,10 @@ done
 ask "Souhaitez-vous installer Tailscale (VPN maillé) ? [o/N]" tailscale_ans
 ask "Souhaitez-vous installer Claude Code (assistant IA d'Anthropic, en ligne de commande) ? [o/N]" claude_ans
 ask "Souhaitez-vous installer gemini-cli (Assistant IA Google) ? [o/N]" gemini_ans
+conky_ans="n"
+if $GUI; then
+    ask "Installer Conky (moniteur système sur le bureau, config « $CONKY_CONFIG » pour cette machine) ? [o/N]" conky_ans
+fi
 ask "Souhaitez-vous installer et activer le serveur SSH ? [o/N]" sshd_ans
 
 ask "Souhaitez-vous ajouter manuellement des logiciels supplémentaires ? (ex: vim htop) [o/N]" custom_ans
@@ -188,6 +209,27 @@ if is_yes "$gemini_ans"; then
         fi
     else
         echo -e "\e[1;31m→ Erreur : l'installation de Gemini CLI a échoué.\e[0m"
+    fi
+fi
+
+# ----------------------------------------------------------
+#  Conky (moniteur système sur le bureau)
+# ----------------------------------------------------------
+if is_yes "$conky_ans"; then
+    echo -e "\n\e[1;34m→ Installation de Conky ($CONKY_CONFIG)...\e[0m"
+    if [ -z "$MAIN_USER" ]; then
+        echo -e "\e[1;31m→ Aucun utilisateur normal trouvé : Conky s'installe par utilisateur, étape ignorée.\e[0m"
+    elif pac_install conky git; then
+        if su - "$MAIN_USER" -c "
+            if [ -d ~/Conkyrc/.git ]; then git -C ~/Conkyrc pull -q; else git clone -q https://github.com/Bricoletonk/Conkyrc.git ~/Conkyrc; fi &&
+            ~/Conkyrc/scripts/install-conky.sh configs/$CONKY_CONFIG"; then
+            echo -e "\e[1;32m→ Conky installé pour $MAIN_USER (config $CONKY_CONFIG).\e[0m"
+            FINAL_NOTES+=("Conky : démarre automatiquement à la prochaine ouverture de session ($MAIN_USER).")
+        else
+            echo -e "\e[1;31m→ Erreur : l'installation de la config Conky a échoué.\e[0m"
+        fi
+    else
+        echo -e "\e[1;31m→ Erreur : l'installation du paquet Conky a échoué.\e[0m"
     fi
 fi
 

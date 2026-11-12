@@ -66,6 +66,15 @@ ARCH="$(dpkg --print-architecture)"
 RAM_MB="$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)"
 if has_gui; then GUI=true; else GUI=false; fi
 
+# Modèle de la machine et config Conky correspondante (dépôt Bricoletonk/Conkyrc)
+MODEL="$(cat /sys/class/dmi/id/product_version /sys/class/dmi/id/product_name 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
+case "$MODEL" in
+    *"ThinkPad T14"*)  CONKY_CONFIG="conkyrc-t14" ;;
+    *"ThinkPad X250"*) CONKY_CONFIG="conkyrc-x250" ;;
+    *)                 CONKY_CONFIG="conkyrc-thinkcentre" ;;   # version générique : sans batterie, interface détectée
+esac
+
+echo -e "\e[1;34m→ Modèle : ${MODEL:-inconnu}\e[0m"
 echo -e "\e[1;34m→ Architecture : $ARCH | RAM : ${RAM_MB} Mo | Interface graphique : $($GUI && echo oui || echo non)\e[0m"
 echo -e "\e[1;34m→ Préparation du système et installation des dépendances requises...\e[0m"
 
@@ -127,6 +136,10 @@ ask "Souhaitez-vous installer Claude Code (assistant IA d'Anthropic, en ligne de
 claude_desktop_ans="n"
 if $GUI; then
     ask "Interface graphique détectée : installer aussi l'application Claude Desktop (bêta) ? [o/N]" claude_desktop_ans
+fi
+conky_ans="n"
+if $GUI; then
+    ask "Installer Conky (moniteur système sur le bureau, config « $CONKY_CONFIG » pour cette machine) ? [o/N]" conky_ans
 fi
 ask "Souhaitez-vous installer gemini-cli (Assistant IA Google) ? [o/N]" gemini_ans
 ask "Souhaitez-vous installer webmin (Interface web d'administration système) ? [o/N]" webmin_ans
@@ -303,6 +316,28 @@ if is_yes "$gemini_ans"; then
         fi
     else
         echo -e "\e[1;31m→ Erreur : Node.js / npm est introuvable ou l'installation de Gemini a échoué.\e[0m"
+    fi
+fi
+
+# ----------------------------------------------------------
+#  Conky (moniteur système sur le bureau)
+# ----------------------------------------------------------
+if is_yes "$conky_ans"; then
+    echo -e "\n\e[1;34m→ Installation de Conky ($CONKY_CONFIG)...\e[0m"
+    choose_main_user
+    if [ -z "$MAIN_USER" ]; then
+        echo -e "\e[1;31m→ Aucun utilisateur normal trouvé : Conky s'installe par utilisateur, étape ignorée.\e[0m"
+    elif $INSTALLER install -y conky-all git; then
+        if su - "$MAIN_USER" -c "
+            if [ -d ~/Conkyrc/.git ]; then git -C ~/Conkyrc pull -q; else git clone -q https://github.com/Bricoletonk/Conkyrc.git ~/Conkyrc; fi &&
+            ~/Conkyrc/scripts/install-conky.sh configs/$CONKY_CONFIG"; then
+            echo -e "\e[1;32m→ Conky installé pour $MAIN_USER (config $CONKY_CONFIG).\e[0m"
+            FINAL_NOTES+=("Conky : démarre automatiquement à la prochaine ouverture de session ($MAIN_USER).")
+        else
+            echo -e "\e[1;31m→ Erreur : l'installation de la config Conky a échoué.\e[0m"
+        fi
+    else
+        echo -e "\e[1;31m→ Erreur : l'installation du paquet Conky a échoué.\e[0m"
     fi
 fi
 
