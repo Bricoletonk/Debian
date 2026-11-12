@@ -15,7 +15,7 @@ bash postinstall.sh
 
 | Dossier / fichier | Rôle |
 |---|---|
-| `script.postinstall.sh` | Script principal de post-installation : Nala, outils de base, hostname, SSH, Webmin, Gemini CLI, alias… |
+| `script.postinstall.sh` | Script principal de post-installation : Nala, outils de base, Claude Code (+ Claude Desktop si interface graphique), Gemini CLI, Webmin, alias, hostname, SSH root, écran de login… |
 | `postinstall/postinstall-ia.sh` | Ancienne variante orientée IA (Gemini / Shell-GPT) |
 | `firewall/firewall-proxy-lan.sh` | Pare-feu iptables : passerelle LAN avec proxy |
 | `firewall/iptables-apache-simple.sh` | Pare-feu iptables devant un serveur Apache (une seule carte) |
