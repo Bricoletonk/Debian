@@ -1,6 +1,6 @@
 # Debian
 
-Mes scripts d'installation et d'administration pour Debian (12 / 13).
+Mes scripts d'installation et d'administration pour Debian (12 / 13), et un équivalent pour Manjaro.
 
 ## Utilisation rapide
 
@@ -11,11 +11,19 @@ curl -fsSL https://raw.githubusercontent.com/Bricoletonk/Debian/main/script.post
 bash postinstall.sh
 ```
 
+Post-installation Manjaro (à lancer avec sudo depuis son utilisateur normal) :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Bricoletonk/Debian/main/manjaro/postinstall-manjaro.sh -o postinstall-manjaro.sh
+sudo bash postinstall-manjaro.sh
+```
+
 ## Contenu
 
 | Dossier / fichier | Rôle |
 |---|---|
 | `script.postinstall.sh` | Script principal de post-installation : Nala, outils de base, Claude Code (+ Claude Desktop si interface graphique), Gemini CLI, Webmin, alias, hostname, SSH root, écran de login… |
+| `manjaro/postinstall-manjaro.sh` | Équivalent pour Manjaro / Arch : miroirs + mise à jour, outils, Tailscale, Claude Code, Gemini CLI, SSH, alias bash **et** zsh, TRIM SSD, nettoyage du cache pacman |
 | `postinstall/postinstall-ia.sh` | Ancienne variante orientée IA (Gemini / Shell-GPT) |
 | `firewall/firewall-proxy-lan.sh` | Pare-feu iptables : passerelle LAN avec proxy |
 | `firewall/iptables-apache-simple.sh` | Pare-feu iptables devant un serveur Apache (une seule carte) |
