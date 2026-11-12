@@ -15,10 +15,22 @@ if ! command -v pacman >/dev/null 2>&1; then
     exit 1
 fi
 
+# Journal complet de l'installation (lisible par root uniquement)
+LOG="/var/log/postinstall-$(date +%Y%m%d-%H%M).log"
+( umask 077; : > "$LOG" )
+exec > >(tee -a "$LOG") 2>&1
+
+# Pose une question ; la réponse est notée dans le journal (sauf si "secret")
 ask() {
     local prompt="$1"
     local varname="$2"
-    read -e -p "$(echo -e "\e[1;33m$prompt\e[0m") " "$varname"
+    local secret="$3"
+    read -e -p "$(echo -e "\e[1;33m$prompt\e[0m") " "$varname" </dev/tty 2>/dev/tty
+    if [ "$secret" = "secret" ]; then
+        echo "[réponse] $prompt → (masquée)" >> "$LOG"
+    else
+        echo "[réponse] $prompt → ${!varname}" >> "$LOG"
+    fi
 }
 
 is_yes() { [[ "$1" =~ ^[oOyY]$ ]]; }
@@ -121,6 +133,8 @@ done
 ask "Souhaitez-vous installer Tailscale (VPN maillé) ? [o/N]" tailscale_ans
 ask "Souhaitez-vous installer Claude Code (assistant IA d'Anthropic, en ligne de commande) ? [o/N]" claude_ans
 ask "Souhaitez-vous installer gemini-cli (Assistant IA Google) ? [o/N]" gemini_ans
+ask "Installer Timeshift (instantanés système, retour arrière après une mise à jour ratée) ? [o/N]" timeshift_ans
+ask "Activer le pare-feu local ufw (règles adaptées : SSH, Tailscale, KDE Connect) ? [o/N]" ufw_ans
 conky_ans="n"
 if $GUI; then
     ask "Installer Conky (moniteur système sur le bureau, config « $CONKY_CONFIG » pour cette machine) ? [o/N]" conky_ans
@@ -197,7 +211,7 @@ if is_yes "$gemini_ans"; then
         key_ready="n"
         [ -n "$MAIN_USER" ] && ask "Voulez-vous enregistrer une clé API pour $MAIN_USER maintenant ? [o/N]" key_ready
         if is_yes "$key_ready"; then
-            ask "Collez votre clé API ici :" GEMINI_API_KEY
+            ask "Collez votre clé API ici :" GEMINI_API_KEY secret
             if [[ -n "$GEMINI_API_KEY" ]]; then
                 install -d -m 700 -o "$MAIN_USER" -g "$MAIN_GROUP" "$MAIN_HOME/.gemini"
                 ( umask 077; echo "GEMINI_API_KEY=\"$GEMINI_API_KEY\"" > "$MAIN_HOME/.gemini/.env" )
@@ -336,9 +350,84 @@ if lsblk -dno ROTA 2>/dev/null | grep -q '^ *0$'; then
 fi
 
 # ----------------------------------------------------------
+#  Pare-feu local (ufw)
+# ----------------------------------------------------------
+if is_yes "$ufw_ans"; then
+    echo -e "\n\e[1;34m→ Configuration du pare-feu ufw...\e[0m"
+    if pac_install ufw; then
+        LAN_NETS="192.168.0.0/16 10.0.0.0/8 172.16.0.0/12"
+        ufw default deny incoming
+        ufw default allow outgoing
+
+        # SSH : la règle est posée AVANT l'activation, pour ne pas couper une session en cours
+        if command -v sshd >/dev/null 2>&1; then
+            ssh_port="$(sshd -T 2>/dev/null | awk '/^port / {print $2; exit}')"
+            ssh_port="${ssh_port:-22}"
+            echo "SSH (port $ssh_port) accessible depuis :"
+            echo "  1) Le réseau local et Tailscale uniquement (recommandé)"
+            echo "  2) Partout"
+            ask "Votre choix ? [1]" ufw_ssh
+            if [ "$ufw_ssh" = "2" ]; then
+                ufw allow "$ssh_port"/tcp comment 'SSH'
+            else
+                for net in $LAN_NETS; do
+                    ufw allow from "$net" to any port "$ssh_port" proto tcp comment 'SSH (reseau local)'
+                done
+            fi
+        fi
+
+        # Tailscale : tout ce qui arrive par le tunnel (filtré par les règles d'accès du tailnet)
+        if command -v tailscale >/dev/null 2>&1; then
+            ufw allow in on tailscale0 comment 'Tailscale'
+            ufw allow 41641/udp comment 'Tailscale (connexions directes)'
+        fi
+
+        # Webmin : réseau local uniquement
+        if [ -d /etc/webmin ]; then
+            for net in $LAN_NETS; do
+                ufw allow from "$net" to any port 10000 proto tcp comment 'Webmin (reseau local)'
+            done
+        fi
+
+        # KDE Connect / GSConnect (liaison avec le téléphone) : réseau local uniquement
+        if command -v kdeconnectd >/dev/null 2>&1 || compgen -G "/usr/share/gnome-shell/extensions/gsconnect@*" >/dev/null; then
+            for net in $LAN_NETS; do
+                ufw allow from "$net" to any port 1714:1764 proto tcp comment 'KDE Connect'
+                ufw allow from "$net" to any port 1714:1764 proto udp comment 'KDE Connect'
+            done
+        fi
+
+        ufw --force enable
+        systemctl enable ufw >/dev/null 2>&1
+        echo -e "\e[1;32m→ Pare-feu actif. Règles en place :\e[0m"
+        ufw status numbered
+        FINAL_NOTES+=("Pare-feu : 'sudo ufw status' pour voir les règles, 'sudo ufw allow <port>' pour en ouvrir un.")
+    else
+        echo -e "\e[1;31m→ Erreur : l'installation de ufw a échoué.\e[0m"
+    fi
+fi
+
+# ----------------------------------------------------------
+#  Instantanés système (Timeshift)
+# ----------------------------------------------------------
+if is_yes "$timeshift_ans"; then
+    echo -e "\n\e[1;34m→ Installation de Timeshift...\e[0m"
+    # timeshift-autosnap-manjaro : instantané automatique avant chaque mise à jour pacman
+    if pac_install timeshift timeshift-autosnap-manjaro; then
+        if [ "$(findmnt -no FSTYPE /)" = "btrfs" ]; then ts_mode="BTRFS"; else ts_mode="RSYNC"; fi
+        echo -e "\e[1;32m→ Timeshift installé.\e[0m"
+        FINAL_NOTES+=("Timeshift : ouvrez-le une fois (menu ou 'sudo timeshift-gtk'), choisissez le type $ts_mode et le disque.")
+        FINAL_NOTES+=("   → Ensuite, un instantané est pris automatiquement avant chaque mise à jour.")
+    else
+        echo -e "\e[1;31m→ Erreur : l'installation de Timeshift a échoué.\e[0m"
+    fi
+fi
+
+# ----------------------------------------------------------
 #  Récapitulatif
 # ----------------------------------------------------------
 echo -e "\n\e[1;36m===== INSTALLATION TERMINÉE =====\e[0m"
+echo -e "\e[1;34mJournal complet : $LOG\e[0m"
 if [ ${#FINAL_NOTES[@]} -gt 0 ]; then
     echo -e "\e[1;33mÀ retenir :\e[0m"
     for note in "${FINAL_NOTES[@]}"; do

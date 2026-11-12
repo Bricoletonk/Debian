@@ -10,10 +10,22 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
+# Journal complet de l'installation (lisible par root uniquement)
+LOG="/var/log/postinstall-$(date +%Y%m%d-%H%M).log"
+( umask 077; : > "$LOG" )
+exec > >(tee -a "$LOG") 2>&1
+
+# Pose une question ; la réponse est notée dans le journal (sauf si "secret")
 ask() {
     local prompt="$1"
     local varname="$2"
-    read -e -p "$(echo -e "\e[1;33m$prompt\e[0m") " "$varname"
+    local secret="$3"
+    read -e -p "$(echo -e "\e[1;33m$prompt\e[0m") " "$varname" </dev/tty 2>/dev/tty
+    if [ "$secret" = "secret" ]; then
+        echo "[réponse] $prompt → (masquée)" >> "$LOG"
+    else
+        echo "[réponse] $prompt → ${!varname}" >> "$LOG"
+    fi
 }
 
 is_yes() { [[ "$1" =~ ^[oOyY]$ ]]; }
@@ -142,6 +154,8 @@ if $GUI; then
     ask "Installer Conky (moniteur système sur le bureau, config « $CONKY_CONFIG » pour cette machine) ? [o/N]" conky_ans
 fi
 ask "Souhaitez-vous installer gemini-cli (Assistant IA Google) ? [o/N]" gemini_ans
+ask "Activer les mises à jour de sécurité automatiques (unattended-upgrades) ? [o/N]" unattended_ans
+ask "Activer le pare-feu local ufw (règles adaptées : SSH, Tailscale, Webmin) ? [o/N]" ufw_ans
 ask "Souhaitez-vous installer webmin (Interface web d'administration système) ? [o/N]" webmin_ans
 
 ask "Souhaitez-vous ajouter manuellement des logiciels supplémentaires ? (ex: apache2 vim) [o/N]" custom_ans
@@ -302,7 +316,7 @@ if is_yes "$gemini_ans"; then
             key_ready="n"
         fi
         if is_yes "$key_ready"; then
-            ask "Collez votre clé API ici :" GEMINI_API_KEY
+            ask "Collez votre clé API ici :" GEMINI_API_KEY secret
             if [[ -n "$GEMINI_API_KEY" ]]; then
                 user_home="$(getent passwd "$MAIN_USER" | cut -d: -f6)"
                 install -d -m 700 -o "$MAIN_USER" -g "$(id -gn "$MAIN_USER")" "$user_home/.gemini"
@@ -487,9 +501,84 @@ if is_yes "$issue_ans"; then
 fi
 
 # ----------------------------------------------------------
+#  Pare-feu local (ufw)
+# ----------------------------------------------------------
+if is_yes "$ufw_ans"; then
+    echo -e "\n\e[1;34m→ Configuration du pare-feu ufw...\e[0m"
+    if $INSTALLER install -y ufw; then
+        LAN_NETS="192.168.0.0/16 10.0.0.0/8 172.16.0.0/12"
+        ufw default deny incoming
+        ufw default allow outgoing
+
+        # SSH : la règle est posée AVANT l'activation, pour ne pas couper une session en cours
+        if command -v sshd >/dev/null 2>&1; then
+            ssh_port="$(sshd -T 2>/dev/null | awk '/^port / {print $2; exit}')"
+            ssh_port="${ssh_port:-22}"
+            echo "SSH (port $ssh_port) accessible depuis :"
+            echo "  1) Le réseau local et Tailscale uniquement (recommandé)"
+            echo "  2) Partout"
+            ask "Votre choix ? [1]" ufw_ssh
+            if [ "$ufw_ssh" = "2" ]; then
+                ufw allow "$ssh_port"/tcp comment 'SSH'
+            else
+                for net in $LAN_NETS; do
+                    ufw allow from "$net" to any port "$ssh_port" proto tcp comment 'SSH (reseau local)'
+                done
+            fi
+        fi
+
+        # Tailscale : tout ce qui arrive par le tunnel (filtré par les règles d'accès du tailnet)
+        if command -v tailscale >/dev/null 2>&1; then
+            ufw allow in on tailscale0 comment 'Tailscale'
+            ufw allow 41641/udp comment 'Tailscale (connexions directes)'
+        fi
+
+        # Webmin : réseau local uniquement
+        if [ -d /etc/webmin ]; then
+            for net in $LAN_NETS; do
+                ufw allow from "$net" to any port 10000 proto tcp comment 'Webmin (reseau local)'
+            done
+        fi
+
+        # KDE Connect / GSConnect (liaison avec le téléphone) : réseau local uniquement
+        if command -v kdeconnectd >/dev/null 2>&1 || compgen -G "/usr/share/gnome-shell/extensions/gsconnect@*" >/dev/null; then
+            for net in $LAN_NETS; do
+                ufw allow from "$net" to any port 1714:1764 proto tcp comment 'KDE Connect'
+                ufw allow from "$net" to any port 1714:1764 proto udp comment 'KDE Connect'
+            done
+        fi
+
+        ufw --force enable
+        systemctl enable ufw >/dev/null 2>&1
+        echo -e "\e[1;32m→ Pare-feu actif. Règles en place :\e[0m"
+        ufw status numbered
+        FINAL_NOTES+=("Pare-feu : 'sudo ufw status' pour voir les règles, 'sudo ufw allow <port>' pour en ouvrir un.")
+    else
+        echo -e "\e[1;31m→ Erreur : l'installation de ufw a échoué.\e[0m"
+    fi
+fi
+
+# ----------------------------------------------------------
+#  Mises à jour de sécurité automatiques
+# ----------------------------------------------------------
+if is_yes "$unattended_ans"; then
+    echo -e "\n\e[1;34m→ Activation des mises à jour de sécurité automatiques...\e[0m"
+    if $INSTALLER install -y unattended-upgrades apt-listchanges; then
+        echo "unattended-upgrades unattended-upgrades/enable_auto_updates boolean true" | debconf-set-selections
+        dpkg-reconfigure -f noninteractive unattended-upgrades
+        systemctl enable --now unattended-upgrades >/dev/null 2>&1
+        echo -e "\e[1;32m→ Les mises à jour de sécurité Debian seront installées automatiquement chaque jour.\e[0m"
+        FINAL_NOTES+=("Mises à jour de sécurité automatiques : historique dans /var/log/unattended-upgrades/.")
+    else
+        echo -e "\e[1;31m→ Erreur : l'installation de unattended-upgrades a échoué.\e[0m"
+    fi
+fi
+
+# ----------------------------------------------------------
 #  Récapitulatif
 # ----------------------------------------------------------
 echo -e "\n\e[1;36m===== INSTALLATION TERMINÉE =====\e[0m"
+echo -e "\e[1;34mJournal complet : $LOG\e[0m"
 if [ ${#FINAL_NOTES[@]} -gt 0 ]; then
     echo -e "\e[1;33mÀ retenir :\e[0m"
     for note in "${FINAL_NOTES[@]}"; do

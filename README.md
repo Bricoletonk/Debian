@@ -22,8 +22,8 @@ sudo bash postinstall-manjaro.sh
 
 | Dossier / fichier | Rôle |
 |---|---|
-| `script.postinstall.sh` | Script principal de post-installation : Nala, outils de base, Claude Code (+ Claude Desktop si interface graphique), Gemini CLI, Webmin, alias, hostname, SSH root, écran de login, TRIM SSD, Conky adapté au modèle de la machine… |
-| `manjaro/postinstall-manjaro.sh` | Équivalent pour Manjaro / Arch : miroirs + mise à jour, outils, Tailscale, Claude Code, Gemini CLI, SSH, alias bash **et** zsh, Conky adapté au modèle, TRIM SSD, nettoyage du cache pacman |
+| `script.postinstall.sh` | Script principal de post-installation : Nala, outils de base, Claude Code (+ Claude Desktop si interface graphique), Gemini CLI, Webmin, alias, hostname, SSH root, écran de login, TRIM SSD, Conky adapté au modèle, mises à jour de sécurité automatiques, pare-feu ufw, journal dans /var/log… |
+| `manjaro/postinstall-manjaro.sh` | Équivalent pour Manjaro / Arch : miroirs + mise à jour, outils, Tailscale, Claude Code, Gemini CLI, SSH, alias bash **et** zsh, Conky adapté au modèle, Timeshift, pare-feu ufw, TRIM SSD, nettoyage du cache pacman, journal dans /var/log |
 | `postinstall/postinstall-ia.sh` | Ancienne variante orientée IA (Gemini / Shell-GPT) |
 | `firewall/firewall-proxy-lan.sh` | Pare-feu iptables : passerelle LAN avec proxy |
 | `firewall/iptables-apache-simple.sh` | Pare-feu iptables devant un serveur Apache (une seule carte) |
