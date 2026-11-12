@@ -24,10 +24,6 @@ sudo bash postinstall-manjaro.sh
 |---|---|
 | `script.postinstall.sh` | Script principal de post-installation : Nala, outils de base, Claude Code (+ Claude Desktop si interface graphique), Gemini CLI, Webmin, alias, hostname, SSH root, écran de login, TRIM SSD, Conky adapté au modèle, mises à jour de sécurité automatiques, pare-feu ufw, journal dans /var/log… |
 | `manjaro/postinstall-manjaro.sh` | Équivalent pour Manjaro / Arch : miroirs + mise à jour, outils, Tailscale, Claude Code, Gemini CLI, SSH, alias bash **et** zsh, Conky adapté au modèle, Timeshift, pare-feu ufw, TRIM SSD, nettoyage du cache pacman, journal dans /var/log |
-| `postinstall/postinstall-ia.sh` | Ancienne variante orientée IA (Gemini / Shell-GPT) |
-| `serveur-web-ftp/vsftpd.conf` | Configuration vsftpd avec utilisateurs virtuels |
-| `serveur-web-ftp/gestion-apache-ftp.sh` | Menu de gestion des sites Apache et des utilisateurs FTP virtuels |
-| `serveur-web-ftp/nouvel-utilisateur-apache.sh` | Première version (création d'utilisateur seulement) |
 | `shell/colorprompt.sh` | Prompt coloré (rouge pour root) — à copier dans `/etc/profile.d/` |
 
-Les scripts de pare-feu iptables de mes labos TSPCR ont été déplacés, corrigés, dans le dépôt [tspcr32](https://github.com/Bricoletonk/tspcr32).
+Les scripts de mes labos TSPCR (pare-feu iptables, serveur web + FTP) ont été déplacés, corrigés, dans le dépôt [tspcr32](https://github.com/Bricoletonk/tspcr32).
