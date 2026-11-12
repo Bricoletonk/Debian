@@ -410,6 +410,12 @@ else
     echo -e "\e[1;33m→ Serveur SSH non installé : étape SSH ignorée.\e[0m"
 fi
 
+# SSD : TRIM hebdomadaire (fstrim.timer est fourni par Debian mais pas activé par défaut)
+if lsblk -dno ROTA 2>/dev/null | grep -q '^ *0$'; then
+    systemctl enable --now fstrim.timer >/dev/null 2>&1 && \
+        echo -e "\e[1;32m→ SSD détecté : TRIM hebdomadaire activé (fstrim.timer).\e[0m"
+fi
+
 ask "Souhaitez-vous afficher des infos système avant le login (dans /etc/issue) ? [o/N]" issue_ans
 if is_yes "$issue_ans"; then
     declare -A issue_opts=(
